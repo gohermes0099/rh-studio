@@ -1,0 +1,13 @@
+project: rh-studio
+description: Local web app to manage and run RunningHub AI Apps
+stack:
+  frontend: React + Vite + TypeScript
+  backend: Node.js + Express
+  database: SQLite
+testing:
+  strict_tdd: false
+  test_runner: none
+conventions:
+  - Conventional commits
+  - Component per file
+  - API routes in /api/*
