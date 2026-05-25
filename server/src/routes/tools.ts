@@ -54,6 +54,21 @@ router.get('/', (_req, res) => {
   res.json(rows);
 });
 
+router.get('/:id', (req, res) => {
+  const db = getDb();
+  const row = db.prepare(`
+    SELECT t.*, (SELECT COUNT(*) FROM tasks WHERE toolId = t.id) as taskCount
+    FROM tools t WHERE t.id = ?
+  `).get(Number(req.params.id));
+
+  if (!row) {
+    res.status(404).json({ error: 'Tool not found' });
+    return;
+  }
+
+  res.json(row);
+});
+
 router.delete('/:id', (req, res) => {
   const db = getDb();
   const result = db.prepare('DELETE FROM tools WHERE id = ?').run(Number(req.params.id));

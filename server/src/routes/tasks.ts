@@ -20,7 +20,7 @@ function getRhClient(): RhClient {
 
 router.post('/run', async (req, res) => {
   try {
-    const { toolId, uploadedFiles } = req.body;
+    const { toolId, uploadedFiles, fieldValues } = req.body;
     if (!toolId) {
       res.status(400).json({ error: 'toolId is required' });
       return;
@@ -43,6 +43,9 @@ router.post('/run', async (req, res) => {
     const nodeInfoList = fields.map((f) => {
       if (uploadedFiles?.[f.nodeId]) {
         return { ...f, fieldValue: uploadedFiles[f.nodeId] };
+      }
+      if (fieldValues?.[f.nodeId] !== undefined) {
+        return { ...f, fieldValue: String(fieldValues[f.nodeId]) };
       }
       return f;
     });
