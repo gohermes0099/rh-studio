@@ -79,7 +79,7 @@ export class RhClient {
   ): Promise<{ download_url: string; fileName: string }> {
     const url = `${this.baseUrl}/openapi/v2/media/upload/binary`;
     const formData = new FormData();
-    const blob = new Blob([fileBuffer]);
+    const blob = new Blob([fileBuffer as BlobPart]);
     formData.append('file', blob, fileName);
 
     const res = await this.fetchWithTimeout(url, {

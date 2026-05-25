@@ -4,6 +4,10 @@ import { RhClient } from '../services/rhClient.js';
 import type { RhNodeField } from '../../../shared/types.js';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const router = Router();
 
@@ -137,7 +141,7 @@ router.get('/:id', async (req, res) => {
           updates.completedAt = now;
           updates.resultFiles = JSON.stringify(queryResult.results ?? []);
 
-          const projectRoot = path.resolve(import.meta.dirname, '../../..');
+          const projectRoot = path.resolve(__dirname, '../../..');
           const downloadsDir = path.join(projectRoot, 'downloads', String(task.id));
           await fs.mkdir(downloadsDir, { recursive: true });
 

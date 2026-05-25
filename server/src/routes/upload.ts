@@ -4,6 +4,10 @@ import { getDb } from '../db/connection.js';
 import { RhClient } from '../services/rhClient.js';
 import path from 'node:path';
 import fs from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage() });
@@ -52,7 +56,7 @@ router.get('/download/:taskId/:nodeId', async (req, res) => {
       return;
     }
 
-    const projectRoot = path.resolve(import.meta.dirname, '../../..');
+    const projectRoot = path.resolve(__dirname, '../../..');
     const downloadsDir = path.join(projectRoot, 'downloads', String(task.id));
 
     const files = await fs.readdir(downloadsDir);
