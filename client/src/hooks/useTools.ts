@@ -9,7 +9,7 @@ export function useTools() {
   const fetchTools = useCallback(async () => {
     try {
       const data = await api.listTools();
-      setTools(data);
+      setTools(data.tools);
     } catch {
       setTools([]);
     } finally {

@@ -14,7 +14,7 @@ export function useSettings() {
 
   const setApiKey = useCallback(async (apiKey: string) => {
     const res = await api.setApiKey(apiKey);
-    if (res.success) setKeyIsSet(true);
+    if (res.keyIsSet) setKeyIsSet(true);
     return res;
   }, []);
 

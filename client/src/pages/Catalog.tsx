@@ -51,37 +51,66 @@ export default function Catalog() {
               <div
                 key={tool.id}
                 className="card"
-                style={{ cursor: 'pointer' }}
+                style={{ cursor: 'pointer', padding: 0, overflow: 'hidden' }}
                 onClick={() => navigate(`/tools/${tool.id}/run`)}
               >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
-                  <h3 style={{ fontSize: '1rem', marginBottom: 8 }}>{tool.webappName}</h3>
-                  <button
-                    className="btn-danger"
-                    style={{ padding: '4px 10px', fontSize: '0.8rem' }}
-                    onClick={(e) => { e.stopPropagation(); setDeleteId(tool.id); }}
-                  >
-                    Delete
-                  </button>
-                </div>
-
-                {tags.length > 0 && (
-                  <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 8 }}>
-                    {tags.map((tag, i) => (
-                      <span key={i} style={{
-                        background: 'var(--primary)',
-                        padding: '2px 8px',
-                        borderRadius: 12,
-                        fontSize: '0.75rem',
-                      }}>
-                        {tag.name}
-                      </span>
-                    ))}
+                {/* Cover image */}
+                {tool.coverUrl ? (
+                  <img
+                    src={tool.coverUrl}
+                    alt={tool.webappName}
+                    style={{
+                      width: '100%',
+                      height: 180,
+                      objectFit: 'cover',
+                      display: 'block',
+                    }}
+                  />
+                ) : (
+                  <div style={{
+                    width: '100%',
+                    height: 180,
+                    background: 'linear-gradient(135deg, rgba(99,102,241,0.15), rgba(6,182,212,0.1))',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: 'var(--text-dim)',
+                    fontSize: '0.9rem',
+                  }}>
+                    {tool.webappName.charAt(0).toUpperCase()}
                   </div>
                 )}
 
-                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                  Tools: {tool.taskCount ?? 0} &middot; ID: {tool.webappId}
+                <div style={{ padding: '16px 20px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: 8 }}>
+                    <h3 style={{ fontSize: '1rem', margin: 0 }}>{tool.webappName}</h3>
+                    <button
+                      className="btn-danger"
+                      style={{ padding: '4px 10px', fontSize: '0.8rem' }}
+                      onClick={(e) => { e.stopPropagation(); setDeleteId(tool.id); }}
+                    >
+                      Delete
+                    </button>
+                  </div>
+
+                  {tags.length > 0 && (
+                    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 8 }}>
+                      {tags.map((tag, i) => (
+                        <span key={i} style={{
+                          background: 'var(--primary)',
+                          padding: '2px 8px',
+                          borderRadius: 12,
+                          fontSize: '0.75rem',
+                        }}>
+                          {tag.name}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                    Tasks: {tool.taskCount ?? 0} &middot; ID: {tool.webappId}
+                  </div>
                 </div>
               </div>
             );

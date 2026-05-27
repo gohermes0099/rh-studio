@@ -1,29 +1,83 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { RhNodeField, FieldType } from '@shared/types';
+import ImageCropModal from './ImageCropModal';
+import PromptPickerModal from './PromptPickerModal';
 
 interface FieldProps {
   field: RhNodeField;
   value: string;
   onChange: (value: string) => void;
+  onUpload?: (file: File) => Promise<string>;
   error?: string;
+  previewUrl?: string;
 }
 
 function TextField({ field, value, onChange }: FieldProps) {
-  const isLong = (field.description?.length ?? 0) > 80;
-  return isLong ? (
-    <textarea
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      placeholder={field.description || field.fieldName}
-      rows={3}
-    />
-  ) : (
-    <input
-      type="text"
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      placeholder={field.description || field.fieldName}
-    />
+  const [pickerOpen, setPickerOpen] = useState(false);
+
+  let isMultiline = false;
+  try {
+    if (field.fieldData) {
+      const parsed = JSON.parse(field.fieldData);
+      if (Array.isArray(parsed) && parsed[1]?.multiline) {
+        isMultiline = true;
+      }
+    }
+  } catch {
+    // ignore parse errors
+  }
+
+  const handlePromptSelect = (content: string) => {
+    onChange(content);
+  };
+
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+        <div style={{ flex: 1 }}>
+          {isMultiline ? (
+            <textarea
+              value={value}
+              onChange={(e) => onChange(e.target.value)}
+              placeholder={field.description || field.fieldName}
+              rows={3}
+            />
+          ) : (
+            <input
+              type="text"
+              value={value}
+              onChange={(e) => onChange(e.target.value)}
+              placeholder={field.description || field.fieldName}
+            />
+          )}
+        </div>
+        {value && (
+          <button
+            type="button"
+            className="btn-ghost"
+            onClick={() => onChange('')}
+            style={{ padding: '8px 12px', fontSize: '0.75rem', whiteSpace: 'nowrap', marginTop: isMultiline ? 0 : 1, color: 'var(--text-muted)' }}
+            title="Clear field"
+          >
+            ✕
+          </button>
+        )}
+        <button
+          type="button"
+          className="btn-ghost"
+          onClick={() => setPickerOpen(true)}
+          style={{ padding: '8px 12px', fontSize: '0.75rem', whiteSpace: 'nowrap', marginTop: isMultiline ? 0 : 1 }}
+          title="Use saved prompt"
+        >
+          Saved
+        </button>
+      </div>
+      <PromptPickerModal
+        open={pickerOpen}
+        onSelect={handlePromptSelect}
+        onClose={() => setPickerOpen(false)}
+      />
+    </div>
   );
 }
 
@@ -38,10 +92,25 @@ function NumberField({ field, value, onChange }: FieldProps) {
   );
 }
 
+interface ListOption {
+  name?: string;
+  index?: string;
+  description?: string;
+  default?: string;
+}
+
 function SelectField({ field, value, onChange }: FieldProps) {
-  let options: string[] = [];
+  let options: ListOption[] = [];
   try {
-    options = JSON.parse(field.fieldData || '[]');
+    const parsed = JSON.parse(field.fieldData || '[]');
+    // RH format: [string[], {default?: string}] — extract options from the inner array
+    if (Array.isArray(parsed) && Array.isArray(parsed[0]) && typeof parsed[0][0] === 'string') {
+      options = parsed[0].map((s: string) => ({ name: s, index: s }));
+    } else if (Array.isArray(parsed) && typeof parsed[0] === 'object' && !Array.isArray(parsed[0])) {
+      options = parsed;
+    } else if (Array.isArray(parsed) && typeof parsed[0] === 'string') {
+      options = parsed.map((s: string) => ({ name: s, index: s }));
+    }
   } catch {
     options = [];
   }
@@ -49,7 +118,9 @@ function SelectField({ field, value, onChange }: FieldProps) {
     <select value={value} onChange={(e) => onChange(e.target.value)}>
       <option value="">Select...</option>
       {options.map((opt) => (
-        <option key={opt} value={opt}>{opt}</option>
+        <option key={opt.index || opt.name} value={opt.index || opt.name || ''}>
+          {opt.name || opt.index || ''}
+        </option>
       ))}
     </select>
   );
@@ -79,30 +150,76 @@ function LoraField({ field, value, onChange }: FieldProps) {
   );
 }
 
-function ImageField({ field, value, onChange }: FieldProps) {
+function ImageField({ field, value, onChange, onUpload, previewUrl }: FieldProps) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [preview, setPreview] = useState('');
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState('');
 
-  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      setPreview(URL.createObjectURL(file));
-      onChange(file.name);
+  // When a previewUrl is provided (e.g. from uploads gallery pick), show it
+  useEffect(() => {
+    if (previewUrl) {
+      setPreview(previewUrl);
     }
+  }, [previewUrl]);
+
+  // Crop state
+  const [cropModalOpen, setCropModalOpen] = useState(false);
+  const [cropImageUrl, setCropImageUrl] = useState('');
+
+  const handleFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const url = URL.createObjectURL(file);
+    setCropImageUrl(url);
+    setCropModalOpen(true);
+    // Reset so same file can be re-selected
+    e.target.value = '';
+  };
+
+  const handleCropComplete = async (blob: Blob, fileName: string) => {
+    setCropModalOpen(false);
+    setUploadError('');
+    setUploading(true);
+    try {
+      setPreview(URL.createObjectURL(blob));
+      const file = new File([blob], fileName, { type: 'image/jpeg' });
+      if (onUpload) {
+        const result = await onUpload(file);
+        onChange(result);
+      } else {
+        onChange(fileName);
+      }
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : 'Upload failed');
+    } finally {
+      setUploading(false);
+      URL.revokeObjectURL(cropImageUrl);
+      setCropImageUrl('');
+    }
+  };
+
+  const handleCropCancel = () => {
+    setCropModalOpen(false);
+    URL.revokeObjectURL(cropImageUrl);
+    setCropImageUrl('');
   };
 
   return (
     <div>
-      <input
-        type="file"
-        ref={fileRef}
-        accept="image/*"
-        onChange={handleFile}
-        style={{ display: 'none' }}
-      />
-      <button type="button" className="btn-primary" onClick={() => fileRef.current?.click()}>
-        Choose Image
-      </button>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <input
+          type="file"
+          ref={fileRef}
+          accept="image/*"
+          onChange={handleFileSelected}
+          style={{ display: 'none' }}
+        />
+        <button type="button" className="btn-primary" onClick={() => fileRef.current?.click()} disabled={uploading}>
+          {uploading ? 'Uploading...' : 'Choose Image'}
+        </button>
+      </div>
+      {uploadError && <div style={{ color: 'var(--error)', fontSize: '0.8rem', marginTop: 4 }}>{uploadError}</div>}
       {preview && (
         <img
           src={preview}
@@ -110,20 +227,44 @@ function ImageField({ field, value, onChange }: FieldProps) {
           style={{ maxWidth: 200, maxHeight: 200, marginTop: 8, borderRadius: 'var(--radius)' }}
         />
       )}
-      {value && !preview && <span style={{ marginLeft: 8 }}>{value}</span>}
+      {value && !preview && <span style={{ marginLeft: 8, fontSize: '0.8rem', color: 'var(--text-muted)' }}>{value}</span>}
+
+      {cropImageUrl && (
+        <ImageCropModal
+          open={cropModalOpen}
+          imageUrl={cropImageUrl}
+          originalName="image.jpg"
+          onCropComplete={handleCropComplete}
+          onCancel={handleCropCancel}
+        />
+      )}
     </div>
   );
 }
 
-function AudioField({ field, value, onChange }: FieldProps) {
+function AudioField({ field, value, onChange, onUpload }: FieldProps) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [preview, setPreview] = useState('');
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState('');
 
-  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      setPreview(URL.createObjectURL(file));
-      onChange(file.name);
+    if (!file) return;
+    setPreview(URL.createObjectURL(file));
+    setUploading(true);
+    setUploadError('');
+    try {
+      if (onUpload) {
+        const fileName = await onUpload(file);
+        onChange(fileName);
+      } else {
+        onChange(file.name);
+      }
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : 'Upload failed');
+    } finally {
+      setUploading(false);
     }
   };
 
@@ -136,23 +277,39 @@ function AudioField({ field, value, onChange }: FieldProps) {
         onChange={handleFile}
         style={{ display: 'none' }}
       />
-      <button type="button" className="btn-primary" onClick={() => fileRef.current?.click()}>
-        Choose Audio
+      <button type="button" className="btn-primary" onClick={() => fileRef.current?.click()} disabled={uploading}>
+        {uploading ? 'Uploading...' : 'Choose Audio'}
       </button>
+      {uploadError && <div style={{ color: 'var(--error)', fontSize: '0.8rem', marginTop: 4 }}>{uploadError}</div>}
       {preview && <audio src={preview} controls style={{ marginTop: 8, width: '100%' }} />}
+      {value && !preview && <span style={{ marginLeft: 8, fontSize: '0.8rem', color: 'var(--text-muted)' }}>{value}</span>}
     </div>
   );
 }
 
-function VideoField({ field, value, onChange }: FieldProps) {
+function VideoField({ field, value, onChange, onUpload }: FieldProps) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [preview, setPreview] = useState('');
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState('');
 
-  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      setPreview(URL.createObjectURL(file));
-      onChange(file.name);
+    if (!file) return;
+    setPreview(URL.createObjectURL(file));
+    setUploading(true);
+    setUploadError('');
+    try {
+      if (onUpload) {
+        const fileName = await onUpload(file);
+        onChange(fileName);
+      } else {
+        onChange(file.name);
+      }
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : 'Upload failed');
+    } finally {
+      setUploading(false);
     }
   };
 
@@ -165,21 +322,37 @@ function VideoField({ field, value, onChange }: FieldProps) {
         onChange={handleFile}
         style={{ display: 'none' }}
       />
-      <button type="button" className="btn-primary" onClick={() => fileRef.current?.click()}>
-        Choose Video
+      <button type="button" className="btn-primary" onClick={() => fileRef.current?.click()} disabled={uploading}>
+        {uploading ? 'Uploading...' : 'Choose Video'}
       </button>
+      {uploadError && <div style={{ color: 'var(--error)', fontSize: '0.8rem', marginTop: 4 }}>{uploadError}</div>}
       {preview && <video src={preview} controls style={{ marginTop: 8, maxWidth: '100%', maxHeight: 300 }} />}
+      {value && !preview && <span style={{ marginLeft: 8, fontSize: '0.8rem', color: 'var(--text-muted)' }}>{value}</span>}
     </div>
   );
 }
 
-function FileField({ field, value, onChange }: FieldProps) {
+function FileField({ field, value, onChange, onUpload }: FieldProps) {
   const fileRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState('');
 
-  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      onChange(file.name);
+    if (!file) return;
+    setUploading(true);
+    setUploadError('');
+    try {
+      if (onUpload) {
+        const fileName = await onUpload(file);
+        onChange(fileName);
+      } else {
+        onChange(file.name);
+      }
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : 'Upload failed');
+    } finally {
+      setUploading(false);
     }
   };
 
@@ -191,10 +364,11 @@ function FileField({ field, value, onChange }: FieldProps) {
         onChange={handleFile}
         style={{ display: 'none' }}
       />
-      <button type="button" className="btn-primary" onClick={() => fileRef.current?.click()}>
-        Choose File
+      <button type="button" className="btn-primary" onClick={() => fileRef.current?.click()} disabled={uploading}>
+        {uploading ? 'Uploading...' : 'Choose File'}
       </button>
-      {value && <span style={{ marginLeft: 8 }}>{value}</span>}
+      {uploadError && <div style={{ color: 'var(--error)', fontSize: '0.8rem', marginTop: 4 }}>{uploadError}</div>}
+      {value && <span style={{ marginLeft: 8, fontSize: '0.8rem', color: 'var(--text-muted)' }}>{value}</span>}
     </div>
   );
 }
@@ -215,7 +389,9 @@ interface DynamicFieldProps {
   field: RhNodeField;
   value: string;
   onChange: (value: string) => void;
+  onUpload?: (file: File) => Promise<string>;
   error?: string;
+  previewUrl?: string;
 }
 
 export default function DynamicField(props: DynamicFieldProps) {

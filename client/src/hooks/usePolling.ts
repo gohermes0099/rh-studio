@@ -12,8 +12,8 @@ export function usePolling(taskId: number | null) {
   const fetchTask = async (id: number) => {
     try {
       const data = await api.getTask(id);
-      setTask(data);
-      if (TERMINAL.includes(data.status)) {
+      setTask(data.task);
+      if (TERMINAL.includes(data.task.status)) {
         if (intervalRef.current) {
           clearInterval(intervalRef.current);
           intervalRef.current = null;

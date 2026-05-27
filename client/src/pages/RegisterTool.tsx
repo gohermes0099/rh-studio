@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 
@@ -7,6 +7,11 @@ export default function RegisterTool() {
   const [webappId, setWebappId] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [keyIsSet, setKeyIsSet] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    api.getKeyStatus().then(r => setKeyIsSet(r.keyIsSet)).catch(() => setKeyIsSet(false));
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -25,6 +30,20 @@ export default function RegisterTool() {
       setLoading(false);
     }
   };
+
+  if (keyIsSet === false) {
+    return (
+      <div className="page">
+        <h1>Register Tool</h1>
+        <div className="card" style={{ borderColor: 'var(--warning)' }}>
+          <p style={{ marginBottom: 12 }}>Please configure your API key first.</p>
+          <button onClick={() => navigate('/settings')} className="btn-primary">
+            Go to Settings
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="page">

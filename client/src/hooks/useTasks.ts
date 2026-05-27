@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { api } from '../api/client';
-import type { Task } from '@shared/types';
+import type { Task, RhNodeField } from '@shared/types';
 
 export function useTasks(search?: string, status?: string) {
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -9,7 +9,7 @@ export function useTasks(search?: string, status?: string) {
   const fetchTasks = useCallback(async () => {
     try {
       const data = await api.listTasks({ search, status });
-      setTasks(data);
+      setTasks(data.tasks);
     } catch {
       setTasks([]);
     } finally {
@@ -19,10 +19,10 @@ export function useTasks(search?: string, status?: string) {
 
   useEffect(() => { fetchTasks(); }, [fetchTasks]);
 
-  const run = useCallback(async (toolId: number, fieldValues: Record<string, string>) => {
-    const task = await api.runTask(toolId, fieldValues);
+  const run = useCallback(async (toolId: number, nodeInfoList: RhNodeField[]) => {
+    const result = await api.runTask(toolId, nodeInfoList);
     await fetchTasks();
-    return task;
+    return result.task;
   }, [fetchTasks]);
 
   const remove = useCallback(async (id: number) => {
