@@ -18,7 +18,7 @@ router.post('/key', async (req, res) => {
     const db = getDb();
     db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('apiKey', apiKey);
 
-    res.json({ success: true });
+    res.json({ keyIsSet: true });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     res.status(400).json({ error: `Invalid API key: ${message}` });

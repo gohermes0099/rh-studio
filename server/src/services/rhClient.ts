@@ -39,10 +39,22 @@ export class RhClient {
     });
 
     const body = await res.json();
-    if (!res.ok || body.code !== 0) {
+    // V2 endpoint returns task data directly; V1 wraps in { code, data, msg }
+    // V2: { taskId, status, errorCode, errorMessage }
+    // V1: { code: 0, data: { taskId, taskStatus }, msg: "success" }
+    if (body.errorCode && body.errorCode !== '') {
       throw new Error(`runTask failed: ${res.status} ${JSON.stringify(body)}`);
     }
-    return { taskId: body.data.taskId, status: body.data.status };
+    if (body.code !== undefined && body.code !== 0) {
+      throw new Error(`runTask failed: ${res.status} ${JSON.stringify(body)}`);
+    }
+    if (body.taskId) {
+      return { taskId: body.taskId, status: body.status || 'PENDING' };
+    }
+    if (body.data?.taskId) {
+      return { taskId: body.data.taskId, status: body.data.taskStatus || 'PENDING' };
+    }
+    throw new Error(`runTask failed: unexpected response ${JSON.stringify(body)}`);
   }
 
   async queryTask(taskId: string): Promise<{
@@ -62,14 +74,20 @@ export class RhClient {
     });
 
     const body = await res.json();
-    if (!res.ok || body.code !== 0) {
+    if (!res.ok) {
       throw new Error(`queryTask failed: ${res.status} ${JSON.stringify(body)}`);
     }
+    // V2 endpoint returns { taskId, status, results, ... }
+    // V1 endpoint wraps in { code, data: { taskId, taskStatus, results, ... } }
+    if (body.code !== undefined && body.code !== 0) {
+      throw new Error(`queryTask failed: ${res.status} ${JSON.stringify(body)}`);
+    }
+    const d = body.data ?? body;
     return {
-      status: body.data.status,
-      results: body.data.results,
-      errorMessage: body.data.errorMessage,
-      failedReason: body.data.failedReason,
+      status: d.status ?? d.taskStatus ?? 'UNKNOWN',
+      results: d.results ?? undefined,
+      errorMessage: d.errorMessage ?? undefined,
+      failedReason: d.failedReason ?? undefined,
     };
   }
 
@@ -89,10 +107,16 @@ export class RhClient {
     });
 
     const body = await res.json();
-    if (!res.ok || body.code !== 0) {
+    if (!res.ok) {
       throw new Error(`uploadFile failed: ${res.status} ${JSON.stringify(body)}`);
     }
-    return body.data;
+    // V2 may return { code, data } or flat { fileName, download_url }
+    if (body.code !== undefined && body.code !== 0) {
+      throw new Error(`uploadFile failed: ${res.status} ${JSON.stringify(body)}`);
+    }
+    if (body.data?.fileName) return body.data;
+    if (body.fileName) return body;
+    throw new Error(`uploadFile failed: unexpected response ${JSON.stringify(body)}`);
   }
 
   private async fetchWithTimeout(url: string, options: RequestInit = {}): Promise<Response> {

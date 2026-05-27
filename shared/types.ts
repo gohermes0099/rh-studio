@@ -1,6 +1,17 @@
 export type FieldType = 'IMAGE' | 'AUDIO' | 'VIDEO' | 'FILE' | 'STRING' | 'LIST' | 'SWITCH' | 'LORA' | 'INT';
 export type TaskStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'EXPIRED';
 
+export interface SavedPrompt {
+  id: number;
+  title: string;
+  content: string;
+  toolId: number | null;
+  description: string;
+  tags: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface RhNodeField {
   nodeId: string;
   nodeName?: string;
@@ -25,6 +36,7 @@ export interface Tool {
   id: number;
   webappId: string;
   webappName: string;
+  coverUrl?: string;
   nodeInfoList: string;
   tags: string;
   createdAt: string;
@@ -55,4 +67,14 @@ export interface ResultFile {
   filePath: string;
   fileName: string;
   mimeType: string;
+}
+
+export interface UploadItem {
+  id: number;
+  fileName: string;
+  rhFileName?: string;
+  originalName: string;
+  mimeType: string;
+  fileSize: number;
+  createdAt: string;
 }

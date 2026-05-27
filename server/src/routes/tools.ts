@@ -7,8 +7,8 @@ const router = Router();
 router.post('/register', async (req, res) => {
   try {
     const { webappId } = req.body;
-    if (!webappId || typeof webappId !== 'string') {
-      res.status(400).json({ error: 'webappId is required' });
+    if (!webappId || typeof webappId !== 'string' || webappId.trim().length === 0) {
+      res.status(400).json({ error: 'Valid webappId is required' });
       return;
     }
 
@@ -22,24 +22,32 @@ router.post('/register', async (req, res) => {
     const client = new RhClient(row.value);
     const schema = await client.fetchSchema(webappId);
 
+    if (!schema.nodeInfoList || !Array.isArray(schema.nodeInfoList)) {
+      res.status(400).json({ error: 'Invalid webappId or schema fetch failed' });
+      return;
+    }
+
     const now = new Date().toISOString();
     const nodeInfoList = JSON.stringify(schema.nodeInfoList);
     const tags = JSON.stringify(schema.tags ?? []);
+    const coverUrl = schema.covers?.[0]?.thumbnailUri || schema.covers?.[0]?.url || '';
 
     db.prepare(`
-      INSERT INTO tools (webappId, webappName, nodeInfoList, tags, createdAt, updatedAt)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT INTO tools (webappId, webappName, coverUrl, nodeInfoList, tags, createdAt, updatedAt)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(webappId) DO UPDATE SET
         webappName = excluded.webappName,
+        coverUrl = excluded.coverUrl,
         nodeInfoList = excluded.nodeInfoList,
         tags = excluded.tags,
         updatedAt = excluded.updatedAt
-    `).run(webappId, schema.webappName, nodeInfoList, tags, now, now);
+    `).run(webappId, schema.webappName, coverUrl, nodeInfoList, tags, now, now);
 
-    res.json({ success: true, webappId, webappName: schema.webappName });
+    const tool = db.prepare('SELECT * FROM tools WHERE webappId = ?').get(webappId);
+    res.status(201).json({ tool });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    res.status(500).json({ error: message });
+    res.status(400).json({ error: `Invalid webappId or schema fetch failed: ${message}` });
   }
 });
 
@@ -51,7 +59,7 @@ router.get('/', (_req, res) => {
     ORDER BY t.updatedAt DESC
   `).all();
 
-  res.json(rows);
+  res.json({ tools: rows });
 });
 
 router.get('/:id', (req, res) => {

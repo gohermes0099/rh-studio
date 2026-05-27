@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { getDb } from '../db/connection.js';
 import { RhClient } from '../services/rhClient.js';
+import { saveGalleryResults, extractPrompt } from '../services/galleryStore.js';
 import type { RhNodeField } from '../../../shared/types.js';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -20,9 +21,13 @@ function getRhClient(): RhClient {
 
 router.post('/run', async (req, res) => {
   try {
-    const { toolId, uploadedFiles, fieldValues } = req.body;
+    const { toolId, nodeInfoList } = req.body;
     if (!toolId) {
       res.status(400).json({ error: 'toolId is required' });
+      return;
+    }
+    if (!nodeInfoList || !Array.isArray(nodeInfoList)) {
+      res.status(400).json({ error: 'nodeInfoList is required' });
       return;
     }
 
@@ -39,27 +44,40 @@ router.post('/run', async (req, res) => {
     }
 
     const client = getRhClient();
-    const fields: RhNodeField[] = JSON.parse(tool.nodeInfoList);
-    const nodeInfoList = fields.map((f) => {
-      if (uploadedFiles?.[f.nodeId]) {
-        return { ...f, fieldValue: uploadedFiles[f.nodeId] };
-      }
-      if (fieldValues?.[f.nodeId] !== undefined) {
-        return { ...f, fieldValue: String(fieldValues[f.nodeId]) };
-      }
-      return f;
+
+    // Build nodeInfoList in the format RH expects, preserving fieldData for LIST
+    // and description for all nodes (as shown in RH's own curl examples)
+    const stripped: RhNodeField[] = nodeInfoList.map((f) => {
+      const entry: RhNodeField = {
+        nodeId: f.nodeId,
+        fieldName: f.fieldName,
+        fieldValue: f.fieldValue ?? '',
+      };
+      if (f.fieldData) entry.fieldData = f.fieldData;
+      if (f.description) entry.description = f.description;
+      return entry;
     });
 
-    const result = await client.runTask(tool.webappId, nodeInfoList);
+    const result = await client.runTask(tool.webappId, stripped, {
+      instanceType: 'default',
+      usePersonalQueue: false,
+    });
 
     const now = new Date().toISOString();
+    const statusMap: Record<string, string> = {
+      QUEUED: 'PENDING',
+      RUNNING: 'RUNNING',
+      SUCCESS: 'COMPLETED',
+      FAILED: 'FAILED',
+    };
+    const status = statusMap[result.status] || 'PENDING';
     db.prepare(`
       INSERT INTO tasks (taskId, toolId, status, nodeInfoList, createdAt, updatedAt)
       VALUES (?, ?, ?, ?, ?, ?)
-    `).run(result.taskId, tool.id, result.status, JSON.stringify(nodeInfoList), now, now);
+    `).run(result.taskId, tool.id, status, JSON.stringify(nodeInfoList), now, now);
 
     const task = db.prepare('SELECT * FROM tasks WHERE taskId = ?').get(result.taskId);
-    res.json(task);
+    res.status(201).json({ task });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     res.status(500).json({ error: message });
@@ -93,7 +111,7 @@ router.get('/', (req, res) => {
   sql += ' ORDER BY t.createdAt DESC';
 
   const rows = db.prepare(sql).all(...params);
-  res.json(rows);
+  res.json({ tasks: rows });
 });
 
 router.get('/:id', async (req, res) => {
@@ -144,19 +162,26 @@ router.get('/:id', async (req, res) => {
           updates.completedAt = now;
           updates.resultFiles = JSON.stringify(queryResult.results ?? []);
 
+          // Save results to flat downloads/ dir + gallery_items table
+          // This decouples images from tasks — tasks can be cleaned up
+          // without affecting gallery visibility.
           const projectRoot = path.resolve(__dirname, '../../..');
-          const downloadsDir = path.join(projectRoot, 'downloads', String(task.id));
-          await fs.mkdir(downloadsDir, { recursive: true });
+          const downloadsBase = path.join(projectRoot, 'downloads');
+          await fs.mkdir(downloadsBase, { recursive: true });
 
           if (queryResult.results) {
-            for (const r of queryResult.results) {
-              const fileName = `${r.nodeId}_${Date.now()}.${r.outputType === 'IMAGE' ? 'png' : r.outputType === 'AUDIO' ? 'wav' : 'bin'}`;
-              const filePath = path.join(downloadsDir, fileName);
-              const fileRes = await fetch(r.url);
-              if (fileRes.ok) {
-                const buffer = Buffer.from(await fileRes.arrayBuffer());
-                await fs.writeFile(filePath, buffer);
-              }
+            const nodeInfoList = JSON.parse(task.nodeInfoList) as RhNodeField[];
+            const prompt = extractPrompt(nodeInfoList);
+            const saved = await saveGalleryResults({
+              results: queryResult.results,
+              downloadsBase,
+              taskId: task.taskId,
+              toolId: task.toolId,
+              toolName: (task as any).toolName || 'Tool #' + task.toolId,
+              prompt,
+            });
+            if (saved > 0) {
+              console.log('[tasks] Saved ' + saved + ' result(s) to gallery for task ' + task.taskId);
             }
           }
         } else if (queryResult.status === 'FAILED') {
@@ -169,9 +194,9 @@ router.get('/:id', async (req, res) => {
           updates.status = mapped[queryResult.status] || 'PENDING';
         }
 
-        const setClauses = Object.keys(updates).map((k) => `${k} = ?`).join(', ');
+        const setClauses = Object.keys(updates).map((k) => k + ' = ?').join(', ');
         const values = Object.values(updates);
-        db.prepare(`UPDATE tasks SET ${setClauses} WHERE id = ?`).run(...values, task.id);
+        db.prepare('UPDATE tasks SET ' + setClauses + ' WHERE id = ?').run(...values, task.id);
       } catch (pollErr) {
         console.error('Poll error:', pollErr);
       }
@@ -184,20 +209,36 @@ router.get('/:id', async (req, res) => {
       WHERE t.id = ?
     `).get(task.id);
 
-    res.json(updated);
+    res.json({ task: updated });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     res.status(500).json({ error: message });
   }
 });
 
-router.delete('/:id', (req, res) => {
+router.delete('/:id', async (req, res) => {
   const db = getDb();
-  const result = db.prepare('DELETE FROM tasks WHERE id = ?').run(Number(req.params.id));
+  const taskId = Number(req.params.id);
+
+  // Fetch the task first to get the RH taskId for folder cleanup
+  const task = db.prepare('SELECT taskId FROM tasks WHERE id = ?').get(taskId) as { taskId: string } | undefined;
+
+  const result = db.prepare('DELETE FROM tasks WHERE id = ?').run(taskId);
   if (result.changes === 0) {
     res.status(404).json({ error: 'Task not found' });
     return;
   }
+
+  // Clean up locally cached result files — try both old (internal id) and new (RH taskId) folders
+  const projectRoot = path.resolve(__dirname, '../../..');
+  const oldDir = path.join(projectRoot, 'downloads', String(taskId));
+  try { await fs.rm(oldDir, { recursive: true, force: true }); } catch { /* ok */ }
+
+  if (task) {
+    const newDir = path.join(projectRoot, 'downloads', task.taskId);
+    try { await fs.rm(newDir, { recursive: true, force: true }); } catch { /* ok */ }
+  }
+
   res.json({ success: true });
 });
 
