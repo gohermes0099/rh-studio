@@ -1,13 +1,19 @@
 project: rh-studio
 description: Local web app to manage and run RunningHub AI Apps
 stack:
-  frontend: React + Vite + TypeScript
-  backend: Node.js + Express
-  database: SQLite
+  frontend: React 19 + Vite 6 + TypeScript 5.7
+  backend: Node.js + Express 4.21 + tsx
+  database: SQLite (better-sqlite3 v12)
+  monorepo: npm workspaces (client, server, shared)
 testing:
   strict_tdd: false
   test_runner: none
+  coverage: false
+  linter: tsc (no dedicated linter)
+  type_checker: TypeScript 5.7
+  formatter: none
 conventions:
   - Conventional commits
   - Component per file
-  - API routes in /api/*
+  - API routes under /api/*
+  - Shared types in shared/types.ts
