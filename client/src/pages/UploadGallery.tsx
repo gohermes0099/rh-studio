@@ -41,6 +41,7 @@ export default function UploadGallery() {
   const [cropImageUrl, setCropImageUrl] = useState('');
   const [cropOriginalName, setCropOriginalName] = useState('');
   const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState('');
 
   // Tool picker (for "Use with webapp")
   const [toolPickerOpen, setToolPickerOpen] = useState(false);
@@ -77,12 +78,13 @@ export default function UploadGallery() {
   const handleCropComplete = async (blob: Blob, fileName: string) => {
     setCropModalOpen(false);
     setUploading(true);
+    setUploadError('');
     try {
       const file = new File([blob], fileName, { type: 'image/jpeg' });
       await api.uploadFile(file);
       fetchUploads();
-    } catch {
-      // error shown inline is optional
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : 'Upload failed');
     } finally {
       setUploading(false);
       URL.revokeObjectURL(cropImageUrl);
@@ -92,8 +94,13 @@ export default function UploadGallery() {
 
   const handleCropCancel = () => {
     setCropModalOpen(false);
+    setUploadError('');
     URL.revokeObjectURL(cropImageUrl);
     setCropImageUrl('');
+  };
+
+  const handleRetry = () => {
+    setUploadError('');
   };
 
   // --- Pick mode ---
@@ -106,7 +113,7 @@ export default function UploadGallery() {
           prefillImage: {
             fileName: prefillFileName,
             uploadId: upload.id,
-            previewUrl: `/api/uploads/${upload.id}/file`,
+            previewUrl: api.downloadUrl(upload),
           },
         },
       });
@@ -128,7 +135,7 @@ export default function UploadGallery() {
         prefillImage: {
           fileName: prefillFileName,
           uploadId: upload.id,
-          previewUrl: `/api/uploads/${upload.id}/file`,
+          previewUrl: api.downloadUrl(upload),
         },
       },
     });
@@ -186,8 +193,28 @@ export default function UploadGallery() {
         placeholder="Search files..."
         value={search}
         onChange={(e) => setSearch(e.target.value)}
-        style={{ marginBottom: 24, maxWidth: 400 }}
+        style={{ marginBottom: 12, maxWidth: 400 }}
       />
+
+      {uploadError && (
+        <div
+          style={{
+            display: 'flex', alignItems: 'center', gap: 12,
+            marginBottom: 12, padding: '10px 14px',
+            background: 'color-mix(in srgb, var(--error) 10%, transparent)',
+            borderRadius: 'var(--radius)', color: 'var(--error)', fontSize: '0.9rem',
+          }}
+        >
+          <span>{uploadError}</span>
+          <button
+            onClick={handleRetry}
+            className="btn-primary"
+            style={{ padding: '4px 12px', fontSize: '0.8rem' }}
+          >
+            Retry
+          </button>
+        </div>
+      )}
 
       {loading ? (
         <LoadingSpinner />
@@ -230,7 +257,7 @@ export default function UploadGallery() {
               {/* Thumbnail */}
               {isImage(upload.mimeType) ? (
                 <img
-                  src={`/api/uploads/${upload.id}/file`}
+                  src={upload.imgbbThumbnailUrl || `/api/uploads/${upload.id}/file`}
                   alt={upload.originalName}
                   loading="lazy"
                   style={{
@@ -297,7 +324,6 @@ export default function UploadGallery() {
                   }}
                   onMouseEnter={(e) => e.currentTarget.style.opacity = '1'}
                   onMouseLeave={(e) => e.currentTarget.style.opacity = '0'}
-                  // Keep visible on the button itself
                   onFocus={(e) => e.currentTarget.style.opacity = '1'}
                   onBlur={(e) => e.currentTarget.style.opacity = '0'}
                 >
@@ -330,18 +356,18 @@ export default function UploadGallery() {
 
             {isImage(selectedUpload.mimeType) ? (
               <img
-                src={`/api/uploads/${selectedUpload.id}/file`}
+                src={selectedUpload.imgbbUrl || `/api/uploads/${selectedUpload.id}/file`}
                 style={{ maxWidth: '100%', maxHeight: '70vh', objectFit: 'contain' as const, borderRadius: 'var(--radius-lg)' }}
               />
             ) : selectedUpload.mimeType.startsWith('video/') ? (
               <video
-                src={`/api/uploads/${selectedUpload.id}/file`}
+                src={selectedUpload.imgbbUrl || `/api/uploads/${selectedUpload.id}/file`}
                 controls
                 style={{ maxWidth: '100%', maxHeight: '70vh', borderRadius: 'var(--radius-lg)' }}
               />
             ) : (
               <audio
-                src={`/api/uploads/${selectedUpload.id}/file`}
+                src={selectedUpload.imgbbUrl || `/api/uploads/${selectedUpload.id}/file`}
                 controls
                 style={{ width: '100%' }}
               />
@@ -360,7 +386,7 @@ export default function UploadGallery() {
                   Use with webapp
                 </button>
                 <a
-                  href={`/api/uploads/${selectedUpload.id}/file?dl=1`}
+                  href={selectedUpload.imgbbUrl || `/api/uploads/${selectedUpload.id}/file?dl=1`}
                   download={selectedUpload.originalName}
                   className="btn-primary"
                   style={{ display: 'inline-block', padding: '8px 16px', textDecoration: 'none' }}

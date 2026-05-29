@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { getDb } from '../db/connection.js';
 import { RhClient } from '../services/rhClient.js';
+import { ImgbbService } from '../services/imgbbService.js';
 import { saveGalleryResults, extractPrompt } from '../services/galleryStore.js';
 import type { RhNodeField } from '../../../shared/types.js';
 import fs from 'node:fs/promises';
@@ -17,6 +18,13 @@ function getRhClient(): RhClient {
   const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('apiKey') as { value: string } | undefined;
   if (!row) throw new Error('API key not configured');
   return new RhClient(row.value);
+}
+
+function getImgbbService(): ImgbbService {
+  const db = getDb();
+  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('imgbbApiKey') as { value: string } | undefined;
+  if (!row?.value) throw new Error('imgbb API key not configured');
+  return new ImgbbService(row.value);
 }
 
 router.post('/run', async (req, res) => {
@@ -162,26 +170,26 @@ router.get('/:id', async (req, res) => {
           updates.completedAt = now;
           updates.resultFiles = JSON.stringify(queryResult.results ?? []);
 
-          // Save results to flat downloads/ dir + gallery_items table
-          // This decouples images from tasks — tasks can be cleaned up
-          // without affecting gallery visibility.
-          const projectRoot = path.resolve(__dirname, '../../..');
-          const downloadsBase = path.join(projectRoot, 'downloads');
-          await fs.mkdir(downloadsBase, { recursive: true });
-
+          // Upload results to imgbb and save to gallery
           if (queryResult.results) {
-            const nodeInfoList = JSON.parse(task.nodeInfoList) as RhNodeField[];
-            const prompt = extractPrompt(nodeInfoList);
-            const saved = await saveGalleryResults({
-              results: queryResult.results,
-              downloadsBase,
-              taskId: task.taskId,
-              toolId: task.toolId,
-              toolName: (task as any).toolName || 'Tool #' + task.toolId,
-              prompt,
-            });
-            if (saved > 0) {
-              console.log('[tasks] Saved ' + saved + ' result(s) to gallery for task ' + task.taskId);
+            try {
+              const imgbb = getImgbbService();
+              const nodeInfoList = JSON.parse(task.nodeInfoList) as RhNodeField[];
+              const prompt = extractPrompt(nodeInfoList);
+              const saved = await saveGalleryResults({
+                results: queryResult.results,
+                imgbbService: imgbb,
+                taskId: task.taskId,
+                toolId: task.toolId,
+                toolName: (task as any).toolName || 'Tool #' + task.toolId,
+                prompt,
+              });
+              if (saved > 0) {
+                console.log('[tasks] Saved ' + saved + ' result(s) to gallery for task ' + task.taskId);
+              }
+            } catch (imgbbErr) {
+              console.error('[tasks] imgbb upload failed for task ' + task.taskId + ':', imgbbErr);
+              // Graceful degradation: don't fail task completion if imgbb upload fails
             }
           }
         } else if (queryResult.status === 'FAILED') {

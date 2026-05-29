@@ -95,4 +95,16 @@ export function runMigrations(db: Database.Database): void {
   } catch {
     // Column already exists — safe to ignore
   }
+
+  // Add imgbb columns to uploads table (may already exist from prior runs)
+  try {
+    db.exec("ALTER TABLE uploads ADD COLUMN imgbbUrl TEXT DEFAULT ''");
+  } catch {
+    // Column already exists — safe to ignore
+  }
+  try {
+    db.exec("ALTER TABLE uploads ADD COLUMN imgbbThumbnailUrl TEXT DEFAULT ''");
+  } catch {
+    // Column already exists — safe to ignore
+  }
 }

@@ -2,8 +2,8 @@ import { Router } from 'express';
 import multer from 'multer';
 import { getDb } from '../db/connection.js';
 import { RhClient } from '../services/rhClient.js';
-import path from 'node:path';
 import fs from 'node:fs/promises';
+import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -15,7 +15,26 @@ const upload = multer({
   limits: { fileSize: 50 * 1024 * 1024 },
 });
 
+/**
+ * Unified POST /upload handler supporting two flows:
+ *
+ * 1. RH binary upload (multipart/form-data):
+ *    - Client POSTs multipart with 'file' field
+ *    - Server forwards binary to RunningHub API
+ *    - Saves metadata to uploads table
+ *
+ * 2. Direct imgbb metadata (application/json):
+ *    - Client uploaded directly to imgbb from browser
+ *    - Client POSTs { imgbbUrl, imgbbThumbnailUrl, originalName, mimeType, fileSize }
+ *    - Server saves metadata to uploads table only
+ */
 router.post('/', (req, res, next) => {
+  const isJson = req.headers['content-type'] === 'application/json';
+  if (isJson) {
+    // JSON body — parse and handle metadata-only flow
+    return next();
+  }
+  // Multipart — use multer
   upload.single('file')(req, res, (err) => {
     if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') {
       res.status(413).json({ error: 'File too large. Maximum is 50MB.' });
@@ -28,7 +47,35 @@ router.post('/', (req, res, next) => {
     next();
   });
 }, async (req, res) => {
+  const isJson = req.headers['content-type'] === 'application/json';
+
   try {
+    // --- Direct imgbb metadata flow ---
+    if (isJson) {
+      const { imgbbUrl, imgbbThumbnailUrl, originalName, mimeType, fileSize } = req.body;
+      if (!imgbbUrl || !originalName) {
+        res.status(400).json({ error: 'imgbbUrl and originalName are required' });
+        return;
+      }
+
+      const db = getDb();
+      const now = new Date().toISOString();
+      const saveToGallery = req.query.saveToGallery !== 'false';
+
+      if (saveToGallery) {
+        const result = db.prepare(`
+          INSERT INTO uploads (fileName, originalName, mimeType, fileSize, imgbbUrl, imgbbThumbnailUrl, createdAt)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `).run(imgbbUrl, originalName, mimeType || 'image/jpeg', fileSize || 0, imgbbUrl, imgbbThumbnailUrl || imgbbUrl, now);
+
+        res.json({ id: result.lastInsertRowid, fileName: originalName, imgbbUrl, imgbbThumbnailUrl: imgbbThumbnailUrl || imgbbUrl });
+      } else {
+        res.json({ fileName: originalName, imgbbUrl, imgbbThumbnailUrl: imgbbThumbnailUrl || imgbbUrl });
+      }
+      return;
+    }
+
+    // --- RH binary upload flow ---
     if (!req.file) {
       res.status(400).json({ error: 'No file uploaded' });
       return;
@@ -41,34 +88,18 @@ router.post('/', (req, res, next) => {
       return;
     }
 
-    // Save to local temp dir
-    const projectRoot = path.resolve(__dirname, '../../..');
-    const uploadsDir = path.join(projectRoot, 'uploads');
-    await fs.mkdir(uploadsDir, { recursive: true });
-    const tempPath = path.join(uploadsDir, `${Date.now()}_${req.file.originalname}`);
-    await fs.writeFile(tempPath, req.file.buffer);
-
-    // Upload to RH
+    // Upload to RH (binary — this is what RH needs)
     const client = new RhClient(row.value);
     const result = await client.uploadFile(req.file.buffer, req.file.originalname);
-
-    // Rename local file to use a sanitized version of the RH fileName
-    const rhFileName = result.fileName;
-    const safeFileName = rhFileName.replace(/\//g, '_');
-    const localPath = path.join(uploadsDir, safeFileName);
 
     // Persist to uploads table (skipped when saveToGallery=false)
     const saveToGallery = req.query.saveToGallery !== 'false';
     if (saveToGallery) {
-      await fs.rename(tempPath, localPath);
       const now = new Date().toISOString();
       db.prepare(`
         INSERT INTO uploads (fileName, rhFileName, originalName, mimeType, fileSize, createdAt)
         VALUES (?, ?, ?, ?, ?, ?)
-      `).run(safeFileName, rhFileName, req.file.originalname, req.file.mimetype, req.file.size, now);
-    } else {
-      // Remove temp file — upload-only, not saving to gallery
-      await fs.rm(tempPath, { force: true });
+      `).run(result.fileName, result.fileName, req.file.originalname, req.file.mimetype, req.file.size, now);
     }
 
     res.json(result);
@@ -193,7 +224,7 @@ router.get('/:taskId/:nodeId', async (req, res) => {
     }
 
     const files = await fs.readdir(downloadsDir);
-    const localFile = files.find((f) => f.startsWith(nodeId) && f !== 'manifest.json');
+    const localFile = files.find((f: string) => f.startsWith(nodeId) && f !== 'manifest.json');
 
     if (localFile) {
       const ext = localFile.split('.').pop()?.toLowerCase() || '';

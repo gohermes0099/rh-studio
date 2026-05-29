@@ -1,11 +1,8 @@
-import fs from 'node:fs/promises';
-import path from 'node:path';
 import crypto from 'node:crypto';
+import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getDb } from '../db/connection.js';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+import type { ImgbbService } from './imgbbService.js';
 
 interface RhResult {
   nodeId: string;
@@ -16,8 +13,8 @@ interface RhResult {
 interface SaveOptions {
   /** Array of RH results to download and store */
   results: RhResult[];
-  /** Base downloads directory (projectRoot/downloads/) */
-  downloadsBase: string;
+  /** imgbbService instance for uploading to imgbb */
+  imgbbService: ImgbbService;
   /** RH taskId that produced these results (nullable — for reference only) */
   taskId?: string;
   /** Tool that created the images */
@@ -43,31 +40,6 @@ function extFromOutputType(outputType?: string): string {
 }
 
 /**
- * Download a single result to the flat downloads directory and return the filename.
- * Uses UUID-based names to avoid collisions in the flat directory.
- */
-async function downloadResult(r: RhResult, downloadsBase: string): Promise<{ fileName: string; ext: string } | null> {
-  const ext = extFromOutputType(r.outputType);
-  const uuid = crypto.randomUUID();
-  const fileName = `${uuid}.${ext}`;
-  const filePath = path.join(downloadsBase, fileName);
-
-  try {
-    const fileRes = await fetch(r.url);
-    if (!fileRes.ok) {
-      console.error(`[galleryStore] Download failed for ${r.nodeId}: HTTP ${fileRes.status}`);
-      return null;
-    }
-    const buffer = Buffer.from(await fileRes.arrayBuffer());
-    await fs.writeFile(filePath, buffer);
-    return { fileName, ext };
-  } catch (err) {
-    console.error(`[galleryStore] Download error for ${r.nodeId}:`, err);
-    return null;
-  }
-}
-
-/**
  * Extract prompt text from a nodeInfoList.
  * Scans for a field matching /prompt/i or "Positive Prompt".
  */
@@ -89,8 +61,8 @@ export function extractPrompt(nodeInfoList: { fieldName: string; fieldValue: str
 
 /**
  * Save RH task results to the gallery:
- * 1. Downloads each result file to the flat downloads/ directory (UUID-based names)
- * 2. Inserts a record into gallery_items for each downloaded file
+ * 1. For each RH result URL, fetch the image and upload to imgbb
+ * 2. Insert a record into gallery_items with imgbb URL in fileName
  *
  * Returns the count of successfully saved items.
  */
@@ -106,31 +78,39 @@ export async function saveGalleryResults(options: SaveOptions): Promise<number> 
   `);
 
   for (const r of options.results) {
-    const result = await downloadResult(r, options.downloadsBase);
-    if (!result) continue;
+    try {
+      // Upload RH result to imgbb
+      const imgbbResult = await options.imgbbService.uploadFromUrl(r.url);
+      const ext = extFromOutputType(r.outputType);
 
-    insert.run(
-      options.taskId ?? null,
-      options.toolId,
-      options.toolName,
-      result.fileName,
-      r.url,
-      result.ext,
-      options.prompt ?? '',
-      r.nodeId,
-      now,
-    );
-
-    saved++;
+      insert.run(
+        options.taskId ?? null,
+        options.toolId,
+        options.toolName,
+        imgbbResult.url,        // fileName = imgbb URL (primary display URL)
+        r.url,                   // originalUrl = RH result URL for reference
+        ext,
+        options.prompt ?? '',
+        r.nodeId,
+        now,
+      );
+      saved++;
+    } catch (err) {
+      console.error('[galleryStore] Failed to upload result to imgbb for nodeId=' + r.nodeId + ':', err);
+      // Graceful degradation: log and continue if imgbb upload fails
+    }
   }
 
   return saved;
 }
 
 /**
- * Serve a gallery item's file. Returns the absolute path and MIME type, or null.
+ * Serve a gallery item's file.
+ *
+ * If fileName starts with 'http', it's an imgbb URL — return a redirect structure.
+ * Otherwise treat as local path for legacy support.
  */
-export function getGalleryFileInfo(galleryId: number): { filePath: string; fileName: string; mimeType: string } | null {
+export function getGalleryFileInfo(galleryId: number): { filePath: string; fileName: string; mimeType: string; isImgbbUrl: boolean } | null {
   const db = getDb();
   const item = db.prepare('SELECT fileName, outputType FROM gallery_items WHERE id = ? AND deletedAt IS NULL').get(galleryId) as {
     fileName: string;
@@ -138,9 +118,6 @@ export function getGalleryFileInfo(galleryId: number): { filePath: string; fileN
   } | undefined;
 
   if (!item) return null;
-
-  const projectRoot = path.resolve(__dirname, '../../..');
-  const filePath = path.join(projectRoot, 'downloads', item.fileName);
 
   const mimeTypes: Record<string, string> = {
     png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
@@ -150,10 +127,29 @@ export function getGalleryFileInfo(galleryId: number): { filePath: string; fileN
   };
 
   const ext = (item.outputType || item.fileName.split('.').pop() || '').toLowerCase();
+
+  // imgbb URLs start with 'http'
+  if (item.fileName.startsWith('http')) {
+    return {
+      filePath: item.fileName,  // treated as redirect URL by caller
+      fileName: item.fileName,
+      mimeType: mimeTypes[ext] || 'image/png',
+      isImgbbUrl: true,
+    };
+  }
+
+  // Legacy local file
+  const { path } = require('node:path');
+  const { fileURLToPath } = require('node:url');
+  const __filename = fileURLToPath(import.meta.url);
+  const __dirname = path.dirname(__filename);
+  const projectRoot = path.resolve(__dirname, '../../..');
+
   return {
-    filePath,
+    filePath: path.join(projectRoot, 'downloads', item.fileName),
     fileName: item.fileName,
     mimeType: mimeTypes[ext] || 'application/octet-stream',
+    isImgbbUrl: false,
   };
 }
 

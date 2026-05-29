@@ -101,6 +101,8 @@ npm install
 
 Ingresá tu API key de RunningHub.ai en la página de Settings de la aplicación.
 
+**imgbb (opcional):** Para subir imágenes directamente a imgbb desde el navegador, configurá una API key en Settings → Image Hosting. Esto permite deployments en Netlify (sin sistema de archivos local). Obtené tu API key gratis en [api.imgbb.com](https://api.imgbb.com/).
+
 ### 4. Ejecución
 
 ```bash

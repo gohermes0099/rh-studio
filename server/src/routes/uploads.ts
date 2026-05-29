@@ -16,7 +16,7 @@ router.get('/', (_req, res) => {
   try {
     const db = getDb();
     const rows = db.prepare(`
-      SELECT id, fileName, rhFileName, originalName, mimeType, fileSize, createdAt
+      SELECT id, fileName, rhFileName, originalName, mimeType, fileSize, createdAt, imgbbUrl, imgbbThumbnailUrl
       FROM uploads
       ORDER BY createdAt DESC
     `).all();
@@ -34,10 +34,13 @@ router.get('/:id/file', async (req, res) => {
     const upload = db.prepare('SELECT * FROM uploads WHERE id = ?').get(Number(req.params.id)) as {
       id: number;
       fileName: string;
+      rhFileName: string;
       originalName: string;
       mimeType: string;
       fileSize: number;
       createdAt: string;
+      imgbbUrl: string;
+      imgbbThumbnailUrl: string;
     } | undefined;
 
     if (!upload) {
@@ -45,6 +48,13 @@ router.get('/:id/file', async (req, res) => {
       return;
     }
 
+    // If imgbb URL exists, redirect to it
+    if (upload.imgbbUrl && upload.imgbbUrl.startsWith('http')) {
+      res.redirect(302, upload.imgbbUrl);
+      return;
+    }
+
+    // Fallback: serve legacy local file
     const filePath = path.join(uploadsDir, upload.fileName);
 
     // Path traversal protection

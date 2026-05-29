@@ -76,6 +76,16 @@ export const api = {
   deleteUpload: (id: number) =>
     request<{ success: boolean }>(`/uploads/${id}`, { method: 'DELETE' }),
 
+  /**
+   * Returns the CDN URL for an upload.
+   * If imgbbUrl is set, returns it directly (direct browser upload).
+   * Otherwise falls back to the backend proxy for legacy records.
+   */
+  downloadUrl: (item: UploadItem): string => {
+    if (item.imgbbUrl) return item.imgbbUrl;
+    return `/api/uploads/${item.id}/file`;
+  },
+
   listGallery: () =>
     request<{ items: { id: number; toolId: number; toolName: string; fileName: string; outputType: string; nodeId: string; createdAt: string; prompt?: string }[] }>('/gallery'),
 
@@ -105,20 +115,79 @@ export const api = {
   deletePrompt: (id: number) =>
     request<{ success: boolean }>(`/prompts/${id}`, { method: 'DELETE' }),
 
-  uploadFile: async (file: File, saveToGallery?: boolean): Promise<{ fileName: string }> => {
+  uploadFile: async (file: File, saveToGallery?: boolean): Promise<{ fileName: string; imgbbUrl: string; imgbbThumbnailUrl: string; uploadId?: number }> => {
+    const imgbbApiKey = localStorage.getItem('imgbbApiKey');
+    if (!imgbbApiKey) {
+      throw new ApiError('Configure imgbb API key in Settings first');
+    }
+
+    const imgbbFolder = localStorage.getItem('imgbbFolder') || undefined;
+
+    // Convert file to base64
+    const base64 = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = reader.result as string;
+        // data:applicationjpeg;base64,/9j/4AAQ... → strip prefix
+        const base64Data = result.split(',')[1];
+        resolve(base64Data);
+      };
+      reader.onerror = () => reject(new ApiError('Failed to read file'));
+      reader.readAsDataURL(file);
+    });
+
+    // Build imgbb upload URL
+    let uploadUrl = `https://api.imgbb.com/1/upload?key=${encodeURIComponent(imgbbApiKey)}`;
+    if (imgbbFolder) {
+      uploadUrl += `&folder=${encodeURIComponent(imgbbFolder)}`;
+    }
+
+    // POST directly to imgbb
     const form = new FormData();
-    form.append('file', file);
-    const query = saveToGallery === false ? '?saveToGallery=false' : '';
+    form.append('image', base64);
+    form.append('name', file.name);
+
+    let imgbbRes: { url: string; thumb: { url: string } };
     try {
-      const res = await fetch(`${BASE}/upload${query}`, { method: 'POST', body: form });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({ error: res.statusText }));
-        throw new ApiError(body.error || 'Upload failed', res.status);
+      const res = await fetch(uploadUrl, { method: 'POST', body: form });
+      const data = await res.json();
+      if (!res.ok || !data?.data) {
+        throw new ApiError(data?.error || 'imgbb upload failed', res.status);
       }
-      return res.json();
+      imgbbRes = data.data;
     } catch (err) {
       if (err instanceof ApiError) throw err;
-      throw new ApiError('Network error — unable to reach server');
+      throw new ApiError('Failed to reach imgbb — check your API key and try again');
     }
+
+    const imgbbUrl = imgbbRes.url;
+    const imgbbThumbnailUrl = imgbbRes.thumb?.url || imgbbUrl;
+
+    // Save metadata to backend
+    const query = saveToGallery === false ? '?saveToGallery=false' : '';
+    const metadataRes = await fetch(`${BASE}/upload${query}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        imgbbUrl,
+        imgbbThumbnailUrl,
+        originalName: file.name,
+        mimeType: file.type,
+        fileSize: file.size,
+      }),
+    });
+
+    if (!metadataRes.ok) {
+      const body = await metadataRes.json().catch(() => ({ error: metadataRes.statusText }));
+      throw new ApiError(body.error || 'Failed to save upload metadata', metadataRes.status);
+    }
+
+    const result = await metadataRes.json();
+    return {
+      fileName: file.name,
+      imgbbUrl,
+      imgbbThumbnailUrl,
+      uploadId: result.id,
+    };
   },
 };

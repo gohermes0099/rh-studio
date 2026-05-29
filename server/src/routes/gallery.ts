@@ -33,8 +33,8 @@ router.get('/', (_req, res) => {
 /**
  * GET /api/gallery/files/:id — serve a gallery item's file
  *
- * Looks up the gallery_items record, detects MIME type, and serves the file.
- * Supports ?dl=1 for download-with-filename.
+ * If fileName starts with 'http', it's an imgbb URL — redirect to it.
+ * Otherwise serve from local downloads/ directory (legacy).
  */
 router.get('/files/:id', async (req, res) => {
   try {
@@ -50,7 +50,13 @@ router.get('/files/:id', async (req, res) => {
       return;
     }
 
-    // Verify file exists on disk
+    // imgbb URL — redirect
+    if (info.isImgbbUrl) {
+      res.redirect(302, info.filePath);
+      return;
+    }
+
+    // Legacy local file — verify exists and serve
     try {
       await fs.access(info.filePath);
     } catch {

@@ -77,4 +77,12 @@ export interface UploadItem {
   mimeType: string;
   fileSize: number;
   createdAt: string;
+  imgbbUrl?: string;          // Primary display URL after direct browser upload
+  imgbbThumbnailUrl?: string; // Thumbnail URL from imgbb
 }
+
+/**
+ * GalleryItem.fileName — post-migration this column stores the imgbb CDN URL.
+ * For legacy records it may still contain a local path (downloads/...) which is
+ * detected by checking whether the value starts with "http".
+ */
