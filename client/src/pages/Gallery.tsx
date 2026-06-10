@@ -122,7 +122,7 @@ export default function Gallery() {
                 Delete
               </button>
               <img
-                src={`/api/gallery/files/${item.id}`}
+                src={item.fileName.startsWith('http') ? item.fileName : `/api/gallery/files/${item.id}`}
                 alt={`${item.toolName} result`}
                 loading="lazy"
                 style={{
@@ -167,7 +167,7 @@ export default function Gallery() {
               {/* Image */}
               <div style={{ flex: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 0 }}>
                 <img
-                  src={`/api/gallery/files/${selectedImage.id}`}
+                  src={selectedImage.fileName.startsWith('http') ? selectedImage.fileName : `/api/gallery/files/${selectedImage.id}`}
                   style={{ maxWidth: '100%', maxHeight: '65vh', objectFit: 'contain' as const, borderRadius: 'var(--radius-lg)' }}
                 />
               </div>
