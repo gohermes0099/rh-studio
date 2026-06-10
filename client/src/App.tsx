@@ -30,8 +30,8 @@ function ProtectedRoute({ children }: { children: ReactNode }) {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <BrowserRouter>
+    <BrowserRouter>
+      <AuthProvider>
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
@@ -47,7 +47,7 @@ export default function App() {
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>
-      </BrowserRouter>
-    </AuthProvider>
+      </AuthProvider>
+    </BrowserRouter>
   );
 }
