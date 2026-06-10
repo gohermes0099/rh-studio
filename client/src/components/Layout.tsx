@@ -19,7 +19,9 @@ export default function Layout() {
   const [keyIsSet, setKeyIsSet] = useState(false);
 
   useEffect(() => {
-    api.getKeyStatus().then((res) => setKeyIsSet(res.keyIsSet)).catch(() => {});
+    api.getKeyStatus()
+      .then((res) => setKeyIsSet(res.keyIsSet))
+      .catch(() => {});
   }, []);
 
   return (

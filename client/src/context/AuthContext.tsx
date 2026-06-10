@@ -21,20 +21,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (token) {
       api.me()
         .then((res) => {
-          if (res.authenticated) {
+          if (res && res.authenticated) {
             setIsAuthenticated(true);
             setUser(res.user);
           } else {
             localStorage.removeItem('auth_token');
+            setIsAuthenticated(false);
+            setUser(null);
           }
         })
         .catch(() => {
           localStorage.removeItem('auth_token');
+          setIsAuthenticated(false);
+          setUser(null);
         })
         .finally(() => setLoading(false));
     } else {
       setLoading(false);
     }
+
+    // Listen for auth-expired events from API client
+    const handleExpired = () => {
+      setIsAuthenticated(false);
+      setUser(null);
+    };
+    window.addEventListener('auth-expired', handleExpired);
+    return () => window.removeEventListener('auth-expired', handleExpired);
   }, []);
 
   const login = async (username: string, password: string) => {

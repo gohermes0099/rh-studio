@@ -31,9 +31,10 @@ export default function Gallery() {
   const [toolPickerOpen, setToolPickerOpen] = useState(false);
 
   useEffect(() => {
-    fetch('/api/gallery')
-      .then(res => res.json())
-      .then(data => setItems(data.items))
+    const token = localStorage.getItem('auth_token');
+    fetch('/api/gallery', { headers: token ? { 'Authorization': `Bearer ${token}` } : {} })
+      .then(res => res.ok ? res.json() : { items: [] })
+      .then(data => setItems(data.items || []))
       .catch(() => setItems([]))
       .finally(() => setLoading(false));
   }, []);
@@ -41,7 +42,11 @@ export default function Gallery() {
   const handleDelete = async () => {
     if (deleteConfirm === null) return;
     try {
-      const res = await fetch(`/api/gallery/${deleteConfirm}`, { method: 'DELETE' });
+      const token = localStorage.getItem('auth_token');
+      const res = await fetch(`/api/gallery/${deleteConfirm}`, {
+        method: 'DELETE',
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+      });
       if (res.ok) {
         setItems(prev => prev.filter(i => i.id !== deleteConfirm));
       }
@@ -54,7 +59,11 @@ export default function Gallery() {
     setToolPickerOpen(false);
     try {
       // Download the image from gallery files endpoint
-      const res = await fetch(`/api/gallery/files/${selectedImage.id}`);
+      const token = localStorage.getItem('auth_token');
+      const res = await fetch(`/api/gallery/files/${selectedImage.id}`, {
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+        redirect: 'follow',
+      });
       const blob = await res.blob();
       // Re-upload it (don't save to uploads gallery)
       const ext = selectedImage.fileName.split('.').pop() || 'jpg';

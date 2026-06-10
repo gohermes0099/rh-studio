@@ -27,9 +27,9 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
   });
   if (res.status === 401) {
     localStorage.removeItem('auth_token');
-    if (window.location.pathname !== '/login') {
-      window.location.href = '/login';
-    }
+    window.dispatchEvent(new Event('auth-expired'));
+    const err = new ApiError('Authentication required', 401);
+    throw err;
   }
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: res.statusText }));

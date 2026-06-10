@@ -49,7 +49,7 @@ export default function UploadGallery() {
   const fetchUploads = () => {
     setLoading(true);
     api.listUploads()
-      .then((res) => setUploads(res.uploads))
+      .then((res) => setUploads(res.uploads || []))
       .catch(() => setUploads([]))
       .finally(() => setLoading(false));
   };
