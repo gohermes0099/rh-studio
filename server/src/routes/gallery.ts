@@ -6,15 +6,12 @@ const router = Router();
 
 /**
  * GET /api/gallery — list all active gallery items
- *
- * Images are stored independently of tasks in the gallery_items table.
- * Tasks can be deleted without affecting gallery visibility.
  */
 router.get('/', (_req, res) => {
   try {
     const items = listGalleryItems().map((item) => ({
       id: item.id,
-      taskId: item.taskId,  // RH taskId (string) — used for re-run
+      taskId: item.taskId,
       toolId: item.toolId,
       toolName: item.toolName,
       fileName: item.fileName,
@@ -35,9 +32,8 @@ router.get('/', (_req, res) => {
 
 /**
  * GET /api/gallery/files/:id — serve a gallery item's file
- *
- * If fileName starts with 'http', it's an imgbb URL — redirect to it.
- * Otherwise serve from local downloads/ directory (legacy).
+ * - imgbb URLs: public redirect (CDN URLs are inherently public)
+ * - Local files: require auth (Bearer header OR ?token=)
  */
 router.get('/files/:id', async (req, res) => {
   try {
@@ -53,13 +49,24 @@ router.get('/files/:id', async (req, res) => {
       return;
     }
 
-    // imgbb URL — redirect
+    // imgbb URL — public redirect
     if (info.isImgbbUrl) {
       res.redirect(302, info.filePath);
       return;
     }
 
-    // Legacy local file — verify exists and serve
+    // Local file — require auth via Authorization header or ?token=
+    const queryToken = typeof req.query.token === 'string' ? req.query.token : undefined;
+    const headerToken = req.headers.authorization?.startsWith('Bearer ')
+      ? req.headers.authorization.substring(7)
+      : undefined;
+    const token = queryToken || headerToken;
+    const session = token ? (global as any).__sessions?.get(token) : null;
+    if (!session || session.expiresAt < Date.now()) {
+      res.status(401).json({ error: 'Authentication required' });
+      return;
+    }
+
     try {
       await fs.access(info.filePath);
     } catch {
@@ -68,6 +75,7 @@ router.get('/files/:id', async (req, res) => {
     }
 
     res.setHeader('Content-Type', info.mimeType);
+    res.setHeader('Cache-Control', 'private, max-age=300');
 
     const isDownload = req.query.dl === '1';
     if (isDownload) {
@@ -83,9 +91,6 @@ router.get('/files/:id', async (req, res) => {
 
 /**
  * DELETE /api/gallery/:id — soft-delete a gallery item
- *
- * Marks deletedAt so it disappears from the gallery but the file
- * remains on disk for potential recovery.
  */
 router.delete('/:id', (req, res) => {
   try {

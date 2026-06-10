@@ -33,7 +33,10 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
   }
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: res.statusText }));
-    throw new ApiError(body.error || res.statusText || 'Request failed', res.status);
+    const err = new ApiError(body.error || res.statusText || 'Request failed', res.status);
+    // Attach extra fields from response body (attemptsLeft, retryAfter, etc.)
+    Object.assign(err, body);
+    throw err;
   }
   return res.json();
 }
@@ -47,6 +50,12 @@ export const api = {
 
   logout: () =>
     request<{ success: boolean }>('/auth/logout', { method: 'POST' }),
+
+  changePassword: (currentPassword: string, newPassword: string) =>
+    request<{ success: boolean }>('/auth/change-password', {
+      method: 'POST',
+      body: JSON.stringify({ currentPassword, newPassword }),
+    }),
 
   me: () =>
     request<{ authenticated: boolean; user: string }>('/auth/me'),

@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { api } from '../api/client';
 
 interface AuthState {
@@ -15,6 +16,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [user, setUser] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  const handleAuthExpired = () => {
+    localStorage.removeItem('auth_token');
+    setIsAuthenticated(false);
+    setUser(null);
+    // Redirect to login if not already there
+    if (location.pathname !== '/login') {
+      navigate('/login', { state: { from: location }, replace: true });
+    }
+  };
 
   useEffect(() => {
     const token = localStorage.getItem('auth_token');
@@ -25,28 +38,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             setIsAuthenticated(true);
             setUser(res.user);
           } else {
-            localStorage.removeItem('auth_token');
-            setIsAuthenticated(false);
-            setUser(null);
+            handleAuthExpired();
           }
         })
         .catch(() => {
-          localStorage.removeItem('auth_token');
-          setIsAuthenticated(false);
-          setUser(null);
+          handleAuthExpired();
         })
         .finally(() => setLoading(false));
     } else {
       setLoading(false);
     }
 
-    // Listen for auth-expired events from API client
-    const handleExpired = () => {
-      setIsAuthenticated(false);
-      setUser(null);
-    };
-    window.addEventListener('auth-expired', handleExpired);
-    return () => window.removeEventListener('auth-expired', handleExpired);
+    window.addEventListener('auth-expired', handleAuthExpired);
+    return () => window.removeEventListener('auth-expired', handleAuthExpired);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const login = async (username: string, password: string) => {

@@ -9,17 +9,23 @@ export default function Settings() {
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
-  // imgbb fields (server-side now)
+  // imgbb fields
   const [imgbbKey, setImgbbKey] = useState('');
   const [imgbbKeySet, setImgbbKeySet] = useState(false);
   const [savingImgbb, setSavingImgbb] = useState(false);
   const [imgbbSaveResult, setImgbbSaveResult] = useState<{ ok: boolean; message: string } | null>(null);
 
+  // Change password fields
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [changingPassword, setChangingPassword] = useState(false);
+  const [passwordResult, setPasswordResult] = useState<{ ok: boolean; message: string } | null>(null);
+
   useEffect(() => {
     api.getImgbbKeyStatus()
       .then((res) => { if (res) setImgbbKeySet(res.keyIsSet); })
       .catch(() => {});
-    // Clean up old localStorage entries from previous design
     localStorage.removeItem('imgbbApiKey');
     localStorage.removeItem('imgbbFolder');
   }, []);
@@ -27,10 +33,7 @@ export default function Settings() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    if (!apiKey.trim()) {
-      setError('API key is required');
-      return;
-    }
+    if (!apiKey.trim()) { setError('API key is required'); return; }
     setSaving(true);
     try {
       await setApiKey(apiKey.trim());
@@ -57,12 +60,122 @@ export default function Settings() {
     }
   };
 
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPasswordResult(null);
+
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      setPasswordResult({ ok: false, message: 'All fields are required' });
+      return;
+    }
+    if (newPassword.length < 8) {
+      setPasswordResult({ ok: false, message: 'New password must be at least 8 characters' });
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordResult({ ok: false, message: 'New passwords do not match' });
+      return;
+    }
+    if (currentPassword === newPassword) {
+      setPasswordResult({ ok: false, message: 'New password must be different from current' });
+      return;
+    }
+
+    setChangingPassword(true);
+    try {
+      await api.changePassword(currentPassword, newPassword);
+      setPasswordResult({ ok: true, message: 'Password updated. All other sessions have been logged out.' });
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+    } catch (err) {
+      setPasswordResult({ ok: false, message: err instanceof Error ? err.message : 'Failed' });
+    } finally {
+      setChangingPassword(false);
+    }
+  };
+
   if (loading) return <LoadingSpinner />;
 
   return (
     <div className="page">
       <h1>Settings</h1>
 
+      {/* Account Security */}
+      <div className="card" style={{ marginBottom: 24 }}>
+        <h2 style={{ fontSize: '1.1rem', marginBottom: 4 }}>Account Security</h2>
+        <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: 20 }}>
+          Change your admin password. After changing, all other devices will be logged out.
+        </p>
+
+        <form onSubmit={handleChangePassword} style={{ display: 'flex', flexDirection: 'column', gap: 12, maxWidth: 500 }}>
+          <div>
+            <label style={{ display: 'block', marginBottom: 6, color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+              Current password
+            </label>
+            <input
+              type="password"
+              value={currentPassword}
+              onChange={(e) => setCurrentPassword(e.target.value)}
+              autoComplete="current-password"
+              style={{ width: '100%' }}
+              disabled={changingPassword}
+            />
+          </div>
+          <div>
+            <label style={{ display: 'block', marginBottom: 6, color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+              New password (min 8 characters)
+            </label>
+            <input
+              type="password"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              autoComplete="new-password"
+              style={{ width: '100%' }}
+              disabled={changingPassword}
+            />
+          </div>
+          <div>
+            <label style={{ display: 'block', marginBottom: 6, color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+              Confirm new password
+            </label>
+            <input
+              type="password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              autoComplete="new-password"
+              style={{ width: '100%' }}
+              disabled={changingPassword}
+            />
+          </div>
+
+          {passwordResult && (
+            <div
+              role="alert"
+              style={{
+                padding: '8px 12px', borderRadius: 'var(--radius)', fontSize: '0.85rem',
+                background: passwordResult.ok
+                  ? 'color-mix(in srgb, var(--success) 10%, transparent)'
+                  : 'color-mix(in srgb, var(--error) 10%, transparent)',
+                color: passwordResult.ok ? 'var(--success)' : 'var(--error)',
+              }}
+            >
+              {passwordResult.message}
+            </div>
+          )}
+
+          <button
+            type="submit"
+            className="btn-primary"
+            disabled={changingPassword || !currentPassword || !newPassword || !confirmPassword}
+            style={{ padding: '8px 16px', alignSelf: 'flex-start' }}
+          >
+            {changingPassword ? 'Updating...' : 'Update Password'}
+          </button>
+        </form>
+      </div>
+
+      {/* RunningHub API Key */}
       <div className="card" style={{ marginBottom: 24 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
           <span>RunningHub API Key Status:</span>
@@ -109,12 +222,10 @@ export default function Settings() {
         </p>
 
         <div style={{ marginBottom: 12, fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: 8 }}>
-          <div
-            style={{
-              width: 10, height: 10, borderRadius: '50%',
-              background: imgbbKeySet ? 'var(--success)' : 'var(--text-muted)',
-            }}
-          />
+          <div style={{
+            width: 10, height: 10, borderRadius: '50%',
+            background: imgbbKeySet ? 'var(--success)' : 'var(--text-muted)',
+          }} />
           <span>imgbb Status: </span>
           <span style={{ color: imgbbKeySet ? 'var(--success)' : 'var(--text-muted)', fontWeight: 600 }}>
             {imgbbKeySet ? 'Configured on server' : 'Not configured'}
@@ -138,9 +249,7 @@ export default function Settings() {
           {imgbbSaveResult && (
             <div
               style={{
-                padding: '8px 12px',
-                borderRadius: 'var(--radius)',
-                fontSize: '0.85rem',
+                padding: '8px 12px', borderRadius: 'var(--radius)', fontSize: '0.85rem',
                 background: imgbbSaveResult.ok
                   ? 'color-mix(in srgb, var(--success) 10%, transparent)'
                   : 'color-mix(in srgb, var(--error) 10%, transparent)',

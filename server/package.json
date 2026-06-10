@@ -8,16 +8,18 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.5",
     "express": "^4.21.0",
-    "sql.js": "^1.11.0",
     "multer": "^1.4.5-lts.1",
-    "cors": "^2.8.5"
+    "sql.js": "^1.11.0"
   },
   "devDependencies": {
-    "tsx": "^4.19.0",
-    "typescript": "^5.7.0",
+    "@types/bcryptjs": "^2.4.6",
+    "@types/cors": "^2.8.17",
     "@types/express": "^5.0.0",
     "@types/multer": "^1.4.12",
-    "@types/cors": "^2.8.17"
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
   }
 }
