@@ -14,21 +14,50 @@ interface GalleryItem {
   nodeId: string;
   createdAt: string;
   prompt?: string;
+  sourceUploadUrl?: string;
+  sourceUploadId?: number | null;
+}
+
+/** Render a long URL in a way that stays inside its container (no overflow) */
+function UrlBox({ url, label, maxLines = 2 }: { url: string; label?: string; maxLines?: number }) {
+  if (!url) return null;
+  return (
+    <div style={{ marginTop: 4 }}>
+      {label && (
+        <div style={{ fontSize: '0.7rem', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }}>
+          {label}
+        </div>
+      )}
+      <div
+        title={url}
+        style={{
+          fontSize: '0.72rem',
+          fontFamily: 'monospace',
+          color: 'var(--text-muted)',
+          background: 'rgba(0, 0, 0, 0.25)',
+          padding: '6px 8px',
+          borderRadius: 4,
+          wordBreak: 'break-all',
+          overflowWrap: 'anywhere',
+          maxHeight: maxLines === 1 ? '2.4em' : `${maxLines * 1.4}em`,
+          overflow: 'hidden',
+          lineHeight: 1.3,
+        }}
+      >
+        {url}
+      </div>
+    </div>
+  );
 }
 
 export default function Gallery() {
   const navigate = useNavigate();
   const [items, setItems] = useState<GalleryItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedImage, setSelectedImage] = useState<{
-    id: number;
-    fileName: string;
-    toolName: string;
-    createdAt: string;
-    prompt?: string;
-  } | null>(null);
+  const [selectedImage, setSelectedImage] = useState<GalleryItem | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null);
   const [toolPickerOpen, setToolPickerOpen] = useState(false);
+  const [rerunning, setRerunning] = useState(false);
 
   useEffect(() => {
     const token = localStorage.getItem('auth_token');
@@ -49,6 +78,7 @@ export default function Gallery() {
       });
       if (res.ok) {
         setItems(prev => prev.filter(i => i.id !== deleteConfirm));
+        if (selectedImage?.id === deleteConfirm) setSelectedImage(null);
       }
     } catch { /* ignore */ }
     setDeleteConfirm(null);
@@ -58,28 +88,69 @@ export default function Gallery() {
     if (!selectedImage) return;
     setToolPickerOpen(false);
     try {
-      // Download the image from gallery files endpoint
+      // Use the source upload (original) if available, otherwise the result
       const token = localStorage.getItem('auth_token');
-      const res = await fetch(`/api/gallery/files/${selectedImage.id}`, {
-        headers: token ? { 'Authorization': `Bearer ${token}` } : {},
-        redirect: 'follow',
-      });
-      const blob = await res.blob();
-      // Re-upload it (don't save to uploads gallery)
-      const ext = selectedImage.fileName.split('.').pop() || 'jpg';
-      const file = new File([blob], `result-${selectedImage.id}.${ext}`, { type: blob.type });
-      const result = await api.uploadFile(file, false);
-      // Navigate to the selected tool with prefill
+      let fileName = '';
+      if (selectedImage.sourceUploadId) {
+        // Fetch the upload to get the latest rhFileName
+        const res = await fetch(`/api/uploads/${selectedImage.sourceUploadId}/file`, {
+          headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+          redirect: 'follow',
+        });
+        const blob = await res.blob();
+        const ext = selectedImage.fileName.split('.').pop() || 'jpg';
+        const file = new File([blob], `source-${selectedImage.sourceUploadId}.${ext}`, { type: blob.type });
+        const result = await api.uploadFile(file, false);
+        fileName = result.fileName;
+      } else {
+        // Fall back to the result image
+        const res = await fetch(`/api/gallery/files/${selectedImage.id}`, {
+          headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+          redirect: 'follow',
+        });
+        const blob = await res.blob();
+        const ext = selectedImage.fileName.split('.').pop() || 'jpg';
+        const file = new File([blob], `result-${selectedImage.id}.${ext}`, { type: blob.type });
+        const result = await api.uploadFile(file, false);
+        fileName = result.fileName;
+      }
+
       navigate(`/tools/${toolId}/run`, {
         state: {
           prefillImage: {
-            fileName: result.fileName,
-            previewUrl: `/api/gallery/files/${selectedImage.id}`,
+            fileName,
+            previewUrl: selectedImage.sourceUploadUrl || `/api/gallery/files/${selectedImage.id}`,
           },
         },
       });
-    } catch {
-      // error handling is inline
+    } catch (err) {
+      console.error('Failed to re-use image:', err);
+    }
+  };
+
+  const handleRerun = async () => {
+    if (!selectedImage) return;
+    setRerunning(true);
+    try {
+      // Find the original task to re-run. taskId in gallery_items is the RH taskId.
+      const token = localStorage.getItem('auth_token');
+      const tasksRes = await fetch('/api/tasks', {
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+      });
+      if (!tasksRes.ok) throw new Error('Failed to list tasks');
+      const tasksData = await tasksRes.json();
+      const originalTask = tasksData.tasks.find((t: any) => t.taskId === selectedImage.id || t.taskId === (selectedImage as any).taskId);
+      if (!originalTask) {
+        // Fallback: use id (DB id) if taskId is undefined
+        throw new Error('Original task not found');
+      }
+      const result = await api.rerunTask(originalTask.id);
+      navigate(`/history/${result.task.id}`);
+    } catch (err) {
+      console.error('Re-run failed:', err);
+      alert('Failed to re-run: ' + (err instanceof Error ? err.message : 'Unknown'));
+    } finally {
+      setRerunning(false);
     }
   };
 
@@ -99,13 +170,7 @@ export default function Gallery() {
               key={item.id}
               className="card"
               style={{ cursor: 'pointer', padding: 0, overflow: 'hidden', position: 'relative' }}
-              onClick={() => setSelectedImage({
-                id: item.id,
-                fileName: item.fileName,
-                toolName: item.toolName,
-                createdAt: item.createdAt,
-                prompt: item.prompt,
-              })}
+              onClick={() => setSelectedImage(item)}
               onMouseEnter={e => {
                 e.currentTarget.style.transform = 'scale(1.02)';
                 e.currentTarget.style.transition = 'transform 0.2s ease';
@@ -121,6 +186,8 @@ export default function Gallery() {
               >
                 Delete
               </button>
+
+              {/* Result image (or fallback if it's a URL) */}
               <img
                 src={item.fileName.startsWith('http') ? item.fileName : `/api/gallery/files/${item.id}`}
                 alt={`${item.toolName} result`}
@@ -132,73 +199,192 @@ export default function Gallery() {
                   display: 'block',
                 }}
               />
+
               <div style={{ padding: '12px 16px' }}>
                 <div style={{ fontWeight: 600, marginBottom: 4 }}>{item.toolName}</div>
-                <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                  {new Date(item.createdAt).toLocaleDateString()} — {new Date(item.createdAt).toLocaleTimeString()}
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                  {new Date(item.createdAt).toLocaleString()}
                 </div>
+                {item.prompt && (
+                  <div
+                    style={{
+                      fontSize: '0.78rem',
+                      color: 'var(--text-muted)',
+                      marginTop: 6,
+                      display: '-webkit-box',
+                      WebkitLineClamp: 2,
+                      WebkitBoxOrient: 'vertical' as const,
+                      overflow: 'hidden',
+                      lineHeight: 1.4,
+                    }}
+                    title={item.prompt}
+                  >
+                    {item.prompt}
+                  </div>
+                )}
               </div>
             </div>
           ))}
         </div>
       )}
 
+      {/* ============= LIGHTBOX MODAL ============= */}
       {selectedImage && (
         <div className="overlay" onClick={() => setSelectedImage(null)}>
           <div
             style={{
-              maxWidth: '95vw', maxHeight: '92vh',
+              maxWidth: '96vw', maxHeight: '94vh',
               display: 'flex', flexDirection: 'column' as const,
               gap: 12,
               animation: 'fadeInScale 0.2s ease',
             }}
             onClick={e => e.stopPropagation()}
           >
-            {/* Close button */}
+            {/* Top bar: close */}
             <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-              <button onClick={() => setSelectedImage(null)} className="btn-ghost"
-                style={{ color: '#fff', fontSize: '1.5rem', padding: '4px 8px' }}>
+              <button
+                onClick={() => setSelectedImage(null)}
+                className="btn-ghost"
+                style={{ color: '#fff', fontSize: '1.5rem', padding: '4px 12px' }}
+              >
                 ✕
               </button>
             </div>
 
-            {/* Image + info side by side */}
-            <div style={{ display: 'flex', gap: 16, flex: 1, minHeight: 0 }}>
-              {/* Image */}
-              <div style={{ flex: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 0 }}>
-                <img
-                  src={selectedImage.fileName.startsWith('http') ? selectedImage.fileName : `/api/gallery/files/${selectedImage.id}`}
-                  style={{ maxWidth: '100%', maxHeight: '65vh', objectFit: 'contain' as const, borderRadius: 'var(--radius-lg)' }}
-                />
+            {/* Before | After side-by-side */}
+            <div style={{ display: 'flex', gap: 16, alignItems: 'stretch', minHeight: 0 }}>
+              {/* Before (source upload) */}
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column' as const, minWidth: 0 }}>
+                <div style={{
+                  fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.1em',
+                  color: 'var(--text-dim)', marginBottom: 6, textAlign: 'center' as const,
+                }}>
+                  BEFORE
+                </div>
+                <div
+                  style={{
+                    flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    background: 'rgba(0, 0, 0, 0.3)', borderRadius: 'var(--radius-lg)',
+                    minHeight: 320, padding: 8, overflow: 'hidden',
+                  }}
+                >
+                  {selectedImage.sourceUploadUrl ? (
+                    <img
+                      src={selectedImage.sourceUploadUrl}
+                      alt="Source image"
+                      style={{ maxWidth: '100%', maxHeight: '55vh', objectFit: 'contain' as const, borderRadius: 4 }}
+                    />
+                  ) : (
+                    <div style={{ color: 'var(--text-dim)', fontSize: '0.85rem', textAlign: 'center' as const, padding: 20 }}>
+                      No source image
+                      <br />
+                      <span style={{ fontSize: '0.75rem' }}>(this task was created before source tracking was added)</span>
+                    </div>
+                  )}
+                </div>
               </div>
 
-              {/* Info panel */}
-              <div className="glass-panel" style={{ flex: 1, padding: 20, display: 'flex', flexDirection: 'column', gap: 12, minWidth: 260, maxWidth: 360 }}>
-                <h2 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 600 }}>{selectedImage.toolName}</h2>
-                <p style={{ fontSize: '0.8rem', color: 'var(--text-dim)' }}>
+              {/* Arrow */}
+              <div style={{ display: 'flex', alignItems: 'center', color: 'var(--text-dim)', fontSize: '1.5rem' }}>
+                →
+              </div>
+
+              {/* After (result) */}
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column' as const, minWidth: 0 }}>
+                <div style={{
+                  fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.1em',
+                  color: 'var(--accent-cyan)', marginBottom: 6, textAlign: 'center' as const,
+                }}>
+                  AFTER
+                </div>
+                <div
+                  style={{
+                    flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    background: 'rgba(0, 0, 0, 0.3)', borderRadius: 'var(--radius-lg)',
+                    minHeight: 320, padding: 8, overflow: 'hidden',
+                  }}
+                >
+                  <img
+                    src={selectedImage.fileName.startsWith('http') ? selectedImage.fileName : `/api/gallery/files/${selectedImage.id}`}
+                    alt="Result image"
+                    style={{ maxWidth: '100%', maxHeight: '55vh', objectFit: 'contain' as const, borderRadius: 4 }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Info panel */}
+            <div
+              className="glass-panel"
+              style={{
+                padding: 16,
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                gap: 16,
+                maxWidth: '100%',
+              }}
+            >
+              {/* Left column: tool, date, prompt */}
+              <div style={{ minWidth: 0 }}>
+                <h2 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 600 }}>{selectedImage.toolName}</h2>
+                <p style={{ fontSize: '0.8rem', color: 'var(--text-dim)', margin: '4px 0 12px' }}>
                   {new Date(selectedImage.createdAt).toLocaleString()}
                 </p>
-
                 {selectedImage.prompt ? (
-                  <p style={{ fontSize: '0.85rem', color: 'var(--text)', lineHeight: 1.5 }}>
-                    {selectedImage.prompt}
-                  </p>
+                  <div>
+                    <div style={{ fontSize: '0.7rem', color: 'var(--text-dim)', textTransform: 'uppercase' as const, letterSpacing: '0.05em', marginBottom: 4 }}>
+                      Prompt
+                    </div>
+                    <div
+                      style={{
+                        fontSize: '0.85rem',
+                        color: 'var(--text)',
+                        background: 'rgba(0, 0, 0, 0.2)',
+                        padding: '8px 12px',
+                        borderRadius: 'var(--radius)',
+                        lineHeight: 1.5,
+                        maxHeight: 100,
+                        overflowY: 'auto',
+                        wordBreak: 'break-word',
+                      }}
+                    >
+                      {selectedImage.prompt}
+                    </div>
+                  </div>
                 ) : (
-                  <p style={{ fontSize: '0.85rem', fontStyle: 'italic', color: 'var(--text-muted)' }}>
-                    Prompt no disponible
+                  <p style={{ fontSize: '0.85rem', fontStyle: 'italic' as const, color: 'var(--text-muted)' }}>
+                    Prompt not available
                   </p>
                 )}
+              </div>
 
-                {/* Actions */}
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                  <button onClick={() => setToolPickerOpen(true)} className="btn-primary" style={{ flex: 1 }}>
-                    Edit with another tool...
+              {/* Right column: file URLs (truncated) + actions */}
+              <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 8, minWidth: 0 }}>
+                {selectedImage.sourceUploadUrl && (
+                  <UrlBox url={selectedImage.sourceUploadUrl} label="Source (original)" maxLines={2} />
+                )}
+                <UrlBox url={selectedImage.fileName} label="Result" maxLines={2} />
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' as const, marginTop: 8 }}>
+                  <button
+                    onClick={handleRerun}
+                    disabled={rerunning}
+                    className="btn-primary"
+                    style={{ flex: 1, minWidth: 120 }}
+                  >
+                    {rerunning ? 'Re-running...' : '🔄 Re-run'}
+                  </button>
+                  <button
+                    onClick={() => setToolPickerOpen(true)}
+                    className="btn-primary"
+                    style={{ flex: 1, minWidth: 120 }}
+                  >
+                    Edit with another tool
                   </button>
                   <a
                     href={`/api/gallery/files/${selectedImage.id}?dl=1`}
                     download={`${selectedImage.toolName}-result`}
                     className="btn-primary"
-                    style={{ display: 'inline-block', padding: '8px 16px', textDecoration: 'none', textAlign: 'center' }}
+                    style={{ display: 'inline-block', padding: '8px 16px', textDecoration: 'none', textAlign: 'center' as const }}
                   >
                     Download
                   </a>

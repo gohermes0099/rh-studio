@@ -209,6 +209,82 @@ router.get('/:id', async (req, res) => {
   }
 });
 
+/**
+ * POST /api/tasks/:id/rerun — re-submit a task with the same parameters
+ *
+ * Useful for re-generating a result with the same prompt/image, or
+ * for re-trying after a transient failure.
+ */
+router.post('/:id/rerun', async (req, res) => {
+  try {
+    const db = getDb();
+    const taskId = Number(req.params.id);
+
+    // Get the original task
+    const task = db.prepare('SELECT * FROM tasks WHERE id = ?').get(taskId) as
+      | { id: number; taskId: string; toolId: number; nodeInfoList: string; status: string }
+      | undefined;
+
+    if (!task) {
+      res.status(404).json({ error: 'Task not found' });
+      return;
+    }
+
+    // Get the tool
+    const tool = db.prepare('SELECT * FROM tools WHERE id = ?').get(task.toolId) as
+      | { id: number; webappId: string; nodeInfoList: string }
+      | undefined;
+
+    if (!tool) {
+      res.status(404).json({ error: 'Tool not found' });
+      return;
+    }
+
+    // Re-parse the original nodeInfoList
+    const nodeInfoList = JSON.parse(task.nodeInfoList) as Array<{ nodeId: string; fieldName: string; fieldValue?: string; fieldData?: string; description?: string; fieldType?: string }>;
+
+    // Call RunningHub again with the same parameters
+    const client = getRhClient();
+    const stripped = nodeInfoList.map((f) => {
+      const entry: any = {
+        nodeId: f.nodeId,
+        fieldName: f.fieldName,
+        fieldValue: f.fieldValue ?? '',
+      };
+      if (f.fieldData) entry.fieldData = f.fieldData;
+      if (f.description) entry.description = f.description;
+      return entry;
+    });
+
+    const result = await client.runTask(tool.webappId, stripped, {
+      instanceType: 'default',
+      usePersonalQueue: false,
+    });
+
+    const now = new Date().toISOString();
+    const statusMap: Record<string, string> = {
+      QUEUED: 'PENDING',
+      RUNNING: 'RUNNING',
+      SUCCESS: 'COMPLETED',
+      FAILED: 'FAILED',
+    };
+    const status = statusMap[result.status] || 'PENDING';
+
+    // Insert a NEW task record (so we keep history)
+    const insertResult = db.run(
+      `INSERT INTO tasks (taskId, toolId, status, nodeInfoList, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?)`,
+      result.taskId, tool.id, status, task.nodeInfoList, now, now
+    );
+
+    const newTask = db.prepare('SELECT * FROM tasks WHERE id = ?').get(insertResult.lastInsertRowid as number);
+
+    res.status(201).json({ task: newTask, rerunOf: taskId });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: message });
+  }
+});
+
 router.delete('/:id', async (req, res) => {
   const db = getDb();
   const taskId = Number(req.params.id);

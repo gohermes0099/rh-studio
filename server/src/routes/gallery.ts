@@ -21,6 +21,8 @@ router.get('/', (_req, res) => {
       nodeId: item.nodeId,
       createdAt: item.createdAt,
       prompt: item.prompt,
+      sourceUploadUrl: item.sourceUploadUrl,
+      sourceUploadId: item.sourceUploadId,
     }));
 
     res.json({ items });

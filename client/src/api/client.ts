@@ -89,6 +89,9 @@ export const api = {
 
   getTask: (id: number) => request<{ task: Task }>(`/tasks/${id}`),
 
+  rerunTask: (id: number) =>
+    request<{ task: Task; rerunOf: number }>(`/tasks/${id}/rerun`, { method: 'POST' }),
+
   deleteTask: (id: number) =>
     request<{ success: boolean }>(`/tasks/${id}`, { method: 'DELETE' }),
 

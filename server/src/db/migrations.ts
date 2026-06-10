@@ -42,7 +42,7 @@ export function runMigrations(db: any): void {
     CREATE TABLE IF NOT EXISTS uploads (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       fileName TEXT NOT NULL,
-      rhFileName TEXT NOT NULL DEFAULT '',
+      rhFileName TEXT DEFAULT '',
       originalName TEXT NOT NULL,
       mimeType TEXT,
       fileSize INTEGER,
@@ -79,4 +79,28 @@ export function runMigrations(db: any): void {
     CREATE INDEX IF NOT EXISTS idx_gallery_items_deletedAt ON gallery_items(deletedAt);
     CREATE INDEX IF NOT EXISTS idx_gallery_items_createdAt ON gallery_items(createdAt);
   `);
+
+  // Migrations for adding columns to existing tables
+  const migrations = [
+    // 001: Add coverUrl to tools
+    `ALTER TABLE tools ADD COLUMN coverUrl TEXT DEFAULT ''`,
+    // 002: Add prompt to gallery_items
+    `ALTER TABLE gallery_items ADD COLUMN prompt TEXT DEFAULT ''`,
+    // 003: Add imgbb columns to uploads
+    `ALTER TABLE uploads ADD COLUMN imgbbUrl TEXT DEFAULT ''`,
+    `ALTER TABLE uploads ADD COLUMN imgbbThumbnailUrl TEXT DEFAULT ''`,
+    // 004: Add rhFileName to uploads
+    `ALTER TABLE uploads ADD COLUMN rhFileName TEXT DEFAULT ''`,
+    // 005: Add source upload tracking to gallery_items (for before/after display)
+    `ALTER TABLE gallery_items ADD COLUMN sourceUploadUrl TEXT DEFAULT ''`,
+    `ALTER TABLE gallery_items ADD COLUMN sourceUploadId INTEGER`,
+  ];
+
+  for (const sql of migrations) {
+    try {
+      db.exec(sql);
+    } catch {
+      // Column already exists — safe to ignore
+    }
+  }
 }

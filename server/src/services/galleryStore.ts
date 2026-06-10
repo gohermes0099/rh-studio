@@ -52,6 +52,29 @@ export async function saveGalleryResults(options: SaveOptions): Promise<number> 
   const now = new Date().toISOString();
   let saved = 0;
 
+  // Look up the source upload for this task so we can show before/after in the gallery.
+  // The nodeInfoList contains fieldValue entries which are openapi/xxx.png (RH fileNames).
+  // We look up those fileNames in the uploads table to find the imgbbUrl (the original).
+  let sourceUploadUrl = '';
+  let sourceUploadId: number | null = null;
+  try {
+    const task = db.prepare('SELECT nodeInfoList FROM tasks WHERE taskId = ?').get(options.taskId || '') as { nodeInfoList: string } | undefined;
+    if (task?.nodeInfoList) {
+      const fields = JSON.parse(task.nodeInfoList) as { fieldValue?: string }[];
+      const sourceFileName = fields.find(f => f.fieldValue && (f.fieldValue.startsWith('openapi/') || f.fieldValue.startsWith('api/')))?.fieldValue;
+      if (sourceFileName) {
+        const upload = db.prepare('SELECT id, imgbbUrl FROM uploads WHERE fileName = ? OR rhFileName = ?').get(sourceFileName, sourceFileName) as { id: number; imgbbUrl: string } | undefined;
+        if (upload) {
+          sourceUploadId = upload.id;
+          sourceUploadUrl = upload.imgbbUrl || '';
+          console.log('[galleryStore] Found source upload:', upload.id, upload.imgbbUrl);
+        }
+      }
+    }
+  } catch (e) {
+    console.error('[galleryStore] Failed to lookup source upload:', e);
+  }
+
   for (const r of options.results) {
     try {
       let displayUrl: string;
@@ -59,23 +82,19 @@ export async function saveGalleryResults(options: SaveOptions): Promise<number> 
       const ext = extFromOutputType(r.outputType);
 
       if (options.imgbbService) {
-        // Re-upload to imgbb for permanent hosting
         try {
           const imgbbResult = await options.imgbbService.uploadFromUrl(r.url);
           displayUrl = imgbbResult.url;
         } catch (imgbbErr) {
           console.error('[galleryStore] imgbb re-upload failed, using RH URL:', imgbbErr);
-          displayUrl = r.url;  // Fall back to RH CDN URL
+          displayUrl = r.url;
         }
       } else {
-        // No imgbb — use the RH URL directly (it will expire but at least we have a record)
         displayUrl = r.url;
       }
 
-      db.run(`
-        INSERT INTO gallery_items (taskId, toolId, toolName, fileName, originalUrl, outputType, prompt, nodeId, createdAt)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `,
+      db.run(
+        `INSERT INTO gallery_items (taskId, toolId, toolName, fileName, originalUrl, outputType, prompt, nodeId, sourceUploadUrl, sourceUploadId, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         options.taskId ?? null,
         options.toolId,
         options.toolName,
@@ -84,6 +103,8 @@ export async function saveGalleryResults(options: SaveOptions): Promise<number> 
         ext,
         options.prompt ?? '',
         r.nodeId,
+        sourceUploadUrl,
+        sourceUploadId,
         now,
       );
       saved++;
@@ -152,10 +173,12 @@ export function listGalleryItems(): Array<{
   nodeId: string;
   createdAt: string;
   prompt: string;
+  sourceUploadUrl: string;
+  sourceUploadId: number | null;
 }> {
   const db = getDb();
   return db.prepare(`
-    SELECT id, taskId, toolId, toolName, fileName, outputType, nodeId, createdAt, prompt
+    SELECT id, taskId, toolId, toolName, fileName, outputType, nodeId, createdAt, prompt, sourceUploadUrl, sourceUploadId
     FROM gallery_items
     WHERE deletedAt IS NULL
     ORDER BY createdAt DESC
