@@ -6,8 +6,12 @@
     "build": "npm run build -w server && npm run build -w client",
     "start": "npm run start -w server"
   },
-  "workspaces": ["client", "server"],
+  "workspaces": [
+    "client",
+    "server"
+  ],
   "devDependencies": {
+    "@types/sql.js": "^1.4.11",
     "concurrently": "^9.0.0",
     "typescript": "^5.7.0"
   }

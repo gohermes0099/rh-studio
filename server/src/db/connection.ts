@@ -11,7 +11,7 @@ let db: ReturnType<typeof createDbHelper> | null = null;
 let rawDb: SqlJsDatabase | null = null;
 let dbPath: string = '';
 
-export async function initDb() {
+export async function initDb(): Promise<any> {
   if (db) return db;
 
   const projectRoot = path.resolve(__dirname, '../../..');

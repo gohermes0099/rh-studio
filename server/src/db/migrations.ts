@@ -1,6 +1,4 @@
-import type { Database } from 'sql.js';
-
-export function runMigrations(db: Database): void {
+export function runMigrations(db: any): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS tools (
       id INTEGER PRIMARY KEY AUTOINCREMENT,

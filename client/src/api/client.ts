@@ -17,10 +17,20 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
   if (!(options?.body instanceof FormData)) {
     headers['Content-Type'] = 'application/json';
   }
+  const token = localStorage.getItem('auth_token');
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
   const res = await fetch(`${BASE}${url}`, {
     headers,
     ...options,
   });
+  if (res.status === 401) {
+    localStorage.removeItem('auth_token');
+    if (window.location.pathname !== '/login') {
+      window.location.href = '/login';
+    }
+  }
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: res.statusText }));
     throw new ApiError(body.error || res.statusText || 'Request failed', res.status);
@@ -29,6 +39,18 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  login: (username: string, password: string) =>
+    request<{ token: string; user: string }>('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ username, password }),
+    }),
+
+  logout: () =>
+    request<{ success: boolean }>('/auth/logout', { method: 'POST' }),
+
+  me: () =>
+    request<{ authenticated: boolean; user: string }>('/auth/me'),
+
   getKeyStatus: () =>
     request<{ keyIsSet: boolean }>('/settings/key/status'),
 

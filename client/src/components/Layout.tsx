@@ -1,6 +1,7 @@
-import { NavLink, Outlet } from 'react-router-dom';
+import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { api } from '../api/client';
+import { useAuth } from '../context/AuthContext';
 
 const NAV_ITEMS = [
   { to: '/', label: 'Catalog', end: true },
@@ -13,6 +14,8 @@ const NAV_ITEMS = [
 ];
 
 export default function Layout() {
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
   const [keyIsSet, setKeyIsSet] = useState(false);
 
   useEffect(() => {
@@ -107,6 +110,28 @@ export default function Layout() {
 
         {/* Spacer */}
         <div style={{ flex: 1 }} />
+
+        {/* User + Logout */}
+        {user && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginLeft: 12 }}>
+            <span style={{ color: '#5a6478', fontSize: '0.82rem' }}>{user}</span>
+            <button
+              onClick={() => { logout(); navigate('/login'); }}
+              style={{
+                padding: '6px 14px',
+                background: 'rgba(99, 102, 241, 0.1)',
+                border: '1px solid rgba(99, 102, 241, 0.2)',
+                borderRadius: 6,
+                color: '#818cf8',
+                fontSize: '0.82rem',
+                cursor: 'pointer',
+                fontWeight: 500,
+              }}
+            >
+              Logout
+            </button>
+          </div>
+        )}
 
         {/* API status */}
         <div style={{
