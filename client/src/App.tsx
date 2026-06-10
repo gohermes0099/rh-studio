@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Layout from './components/Layout';
 import Catalog from './pages/Catalog';
 import RegisterTool from './pages/RegisterTool';
@@ -16,6 +16,7 @@ export default function App() {
       <Routes>
         <Route element={<Layout />}>
           <Route path="/" element={<Catalog />} />
+          <Route path="/login" element={<Navigate to="/settings" replace />} />
           <Route path="/register" element={<RegisterTool />} />
           <Route path="/tools/:id/run" element={<ToolRunner />} />
           <Route path="/history" element={<TaskHistory />} />
@@ -24,6 +25,7 @@ export default function App() {
           <Route path="/prompts" element={<Prompts />} />
           <Route path="/uploads" element={<UploadGallery />} />
           <Route path="/settings" element={<Settings />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>
     </BrowserRouter>

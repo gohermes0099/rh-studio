@@ -4,10 +4,11 @@
     "jsx": "react-jsx",
     "outDir": "dist",
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "skipLibCheck": true,
     "paths": {
       "@shared/*": ["../shared/*"]
     }
   },
-  "include": ["src"],
-  "exclude": ["vite.config.ts"]
+  "include": ["src", "../shared/**/*"],
+  "exclude": ["vite.config.ts", "dist"]
 }
