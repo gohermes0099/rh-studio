@@ -135,6 +135,79 @@ router.get('/key/status', (_req, res) => {
 });
 
 /**
+ * POST /api/upload/reprocess/:id
+ *
+ * Takes an existing upload (identified by id) and re-uploads its image to
+ * RunningHub. Used when the stored fileName is an external URL (e.g. imgbb)
+ * that RunningHub's ComfyUI can't download (SSL issues), or when migrating
+ * from the old flow.
+ *
+ * Returns the fresh `rhFileName` to use as fieldValue in nodeInfoList.
+ */
+router.post('/reprocess/:id', async (req, res) => {
+  const uploadId = Number(req.params.id);
+  if (isNaN(uploadId)) {
+    res.status(400).json({ error: 'Invalid upload ID' });
+    return;
+  }
+
+  try {
+    const db = getDb();
+    const upload = db.prepare('SELECT * FROM uploads WHERE id = ?').get(uploadId) as
+      | { id: number; fileName: string; originalName: string; imgbbUrl: string; imgbbThumbnailUrl: string }
+      | undefined;
+
+    if (!upload) {
+      res.status(404).json({ error: 'Upload not found' });
+      return;
+    }
+
+    // If the fileName is already a RunningHub fileName, return it as-is
+    if (upload.fileName.startsWith('openapi/') || upload.fileName.startsWith('api/')) {
+      res.json({ rhFileName: upload.fileName, alreadyProcessed: true });
+      return;
+    }
+
+    // Get RH client
+    const rh = getRhClient();
+    if (!rh) {
+      res.status(500).json({ error: 'RunningHub API key not configured' });
+      return;
+    }
+
+    // Download the image from the existing URL (could be imgbb URL or old fileName)
+    const sourceUrl = upload.imgbbUrl || upload.fileName;
+    if (!sourceUrl.startsWith('http')) {
+      res.status(400).json({ error: 'Upload has no downloadable URL' });
+      return;
+    }
+
+    console.log('[reprocess] Downloading from:', sourceUrl);
+    const imgRes = await fetch(sourceUrl);
+    if (!imgRes.ok) {
+      res.status(500).json({ error: `Failed to download: ${imgRes.status}` });
+      return;
+    }
+    const buffer = Buffer.from(await imgRes.arrayBuffer());
+    const fileName = upload.originalName || 'image.jpg';
+
+    // Upload to RunningHub
+    const rhResult = await rh.uploadFile(buffer, fileName);
+    const newRhFileName = rhResult.fileName;
+    console.log('[reprocess] Got new RH fileName:', newRhFileName);
+
+    // Update the upload record
+    db.run('UPDATE uploads SET fileName = ? WHERE id = ?', [newRhFileName, uploadId]);
+
+    res.json({ rhFileName: newRhFileName, alreadyProcessed: false });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('[reprocess] Failed:', message);
+    res.status(500).json({ error: message });
+  }
+});
+
+/**
  * POST /api/upload/key — set imgbb API key on the server
  */
 router.post('/key', (req, res) => {

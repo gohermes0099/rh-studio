@@ -99,6 +99,15 @@ export const api = {
     request<{ success: boolean }>(`/uploads/${id}`, { method: 'DELETE' }),
 
   /**
+   * Re-process an existing upload: download from imgbb, re-upload to RunningHub,
+   * update the fileName in DB. Returns a fresh RunningHub fileName.
+   */
+  reprocessUpload: (id: number) =>
+    request<{ rhFileName: string; alreadyProcessed: boolean }>(`/upload/reprocess/${id}`, {
+      method: 'POST',
+    }),
+
+  /**
    * Returns the CDN URL for an upload.
    * If imgbbUrl is set, returns it directly (direct browser upload).
    * Otherwise falls back to the backend proxy for legacy records.

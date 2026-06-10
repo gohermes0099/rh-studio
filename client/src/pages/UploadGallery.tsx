@@ -129,7 +129,27 @@ export default function UploadGallery() {
     setToolPickerOpen(false);
     const upload = selectedUpload;
     if (!upload) return;
-    const prefillFileName = upload.rhFileName || upload.fileName;
+
+    // Determine the fileName to use:
+    // 1. If rhFileName exists (new format), use it
+    // 2. If fileName is a RunningHub fileName (openapi/ or api/), use it
+    // 3. Otherwise, re-process to get a fresh RunningHub fileName
+    let prefillFileName = upload.rhFileName || upload.fileName;
+    const isRhFileName = prefillFileName.startsWith('openapi/') || prefillFileName.startsWith('api/');
+
+    if (!isRhFileName) {
+      try {
+        setLoading(true);
+        const res = await api.reprocessUpload(upload.id);
+        prefillFileName = res.rhFileName;
+      } catch (err) {
+        alert('Failed to prepare image for RunningHub: ' + (err instanceof Error ? err.message : 'Unknown error'));
+        return;
+      } finally {
+        setLoading(false);
+      }
+    }
+
     navigate(`/tools/${toolId}/run`, {
       state: {
         prefillImage: {
