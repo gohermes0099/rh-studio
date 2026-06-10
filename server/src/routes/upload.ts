@@ -104,10 +104,10 @@ router.post('/', upload.single('file'), async (req, res) => {
 
     let uploadId: number | null = null;
     if (saveToGallery) {
-      const result = db.run(`
-        INSERT INTO uploads (fileName, originalName, mimeType, fileSize, imgbbUrl, imgbbThumbnailUrl, createdAt)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `, [storedFileName, req.file.originalname, req.file.mimetype, req.file.size, imgbbUrl, imgbbThumbnailUrl, now]);
+      const result = db.run(
+        `INSERT INTO uploads (fileName, originalName, mimeType, fileSize, imgbbUrl, imgbbThumbnailUrl, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        storedFileName, req.file.originalname, req.file.mimetype, req.file.size, imgbbUrl, imgbbThumbnailUrl, now
+      );
       uploadId = result.lastInsertRowid as number;
     }
 
