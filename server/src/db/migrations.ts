@@ -76,11 +76,36 @@ export function runMigrations(db: any): void {
       deletedAt TEXT
     );
 
-    CREATE INDEX IF NOT EXISTS idx_gallery_items_deletedAt ON gallery_items(deletedAt);
-    CREATE INDEX IF NOT EXISTS idx_gallery_items_createdAt ON gallery_items(createdAt);
+    CREATE TABLE IF NOT EXISTS system_prompts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      content TEXT NOT NULL,
+      category TEXT DEFAULT 'general',
+      description TEXT DEFAULT '',
+      isBuiltin INTEGER DEFAULT 0,
+      createdAt TEXT NOT NULL,
+      updatedAt TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS prompt_enhancements (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      originalText TEXT NOT NULL,
+      enhancedText TEXT NOT NULL,
+      rationale TEXT DEFAULT '',
+      confidence TEXT DEFAULT 'medium',
+      provider TEXT NOT NULL,
+      model TEXT NOT NULL,
+      systemPromptId INTEGER,
+      imageHashes TEXT DEFAULT '[]',
+      userContext TEXT DEFAULT '{}',
+      createdAt TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_system_prompts_category ON system_prompts(category);
+    CREATE INDEX IF NOT EXISTS idx_prompt_enhancements_createdAt ON prompt_enhancements(createdAt);
   `);
 
-  // Migrations for adding columns to existing tables
+  // 006: AI enhancement tables created above (system_prompts, prompt_enhancements)
   const migrations = [
     // 001: Add coverUrl to tools
     `ALTER TABLE tools ADD COLUMN coverUrl TEXT DEFAULT ''`,

@@ -7,6 +7,7 @@ const NAV_ITEMS = [
   { to: '/', label: 'Catalog', end: true },
   { to: '/register', label: 'Register' },
   { to: '/prompts', label: 'Prompts' },
+  { to: '/agent', label: 'Agent' },
   { to: '/history', label: 'History' },
   { to: '/gallery', label: 'Gallery' },
   { to: '/uploads', label: 'Uploads' },

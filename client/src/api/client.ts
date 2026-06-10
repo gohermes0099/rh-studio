@@ -206,4 +206,123 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ apiKey }),
     }),
+
+  // ── AI Enhancement ──
+  getAIConfig: () =>
+    request<{
+      activeProvider: string | null;
+      activeSystemPromptId: string;
+      hasActiveConfig: boolean;
+      providers: Array<{
+        id: string;
+        displayName: string;
+        defaultModel: string;
+        availableModels: string[];
+        hasKey: boolean;
+        selectedModel: string;
+      }>;
+    }>('/enhance/config'),
+
+  setActiveProvider: (providerId: string) =>
+    request<{ success: boolean; activeProvider: string }>('/enhance/config/active-provider', {
+      method: 'POST',
+      body: JSON.stringify({ providerId }),
+    }),
+
+  setProviderApiKey: (providerId: string, apiKey: string) =>
+    request<{ success: boolean }>('/enhance/config/api-key', {
+      method: 'POST',
+      body: JSON.stringify({ providerId, apiKey }),
+    }),
+
+  deleteProviderApiKey: (providerId: string) =>
+    request<{ success: boolean }>(`/enhance/config/api-key/${providerId}`, {
+      method: 'DELETE',
+    }),
+
+  setProviderModel: (providerId: string, model: string) =>
+    request<{ success: boolean }>('/enhance/config/model', {
+      method: 'POST',
+      body: JSON.stringify({ providerId, model }),
+    }),
+
+  testProvider: (providerId: string) =>
+    request<{ ok: boolean; latencyMs: number; error?: string }>('/enhance/config/test', {
+      method: 'POST',
+      body: JSON.stringify({ providerId }),
+    }),
+
+  listSystemPrompts: () =>
+    request<{
+      systemPrompts: Array<{
+        id: number;
+        name: string;
+        content: string;
+        category: string;
+        description: string;
+        isBuiltin: number;
+      }>;
+    }>('/enhance/system-prompts'),
+
+  createSystemPrompt: (data: { name: string; content: string; category?: string; description?: string }) =>
+    request<{ success: boolean; id: number }>('/enhance/system-prompts', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  updateSystemPrompt: (id: number, data: { name?: string; content?: string; category?: string; description?: string }) =>
+    request<{ success: boolean }>(`/enhance/system-prompts/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+
+  deleteSystemPrompt: (id: number) =>
+    request<{ success: boolean }>(`/enhance/system-prompts/${id}`, {
+      method: 'DELETE',
+    }),
+
+  setActiveSystemPrompt: (id: number | string) =>
+    request<{ success: boolean; activeSystemPromptId: string }>('/enhance/config/active-system-prompt', {
+      method: 'POST',
+      body: JSON.stringify({ id: String(id) }),
+    }),
+
+  enhancePrompt: (data: {
+    text: string;
+    fieldName?: string;
+    toolId?: number;
+    toolName?: string;
+    imageUrls?: string[];
+    imageBase64?: string;
+    imageMimeType?: string;
+    systemPromptId?: number | string;
+  }) =>
+    request<{
+      enhanced: string;
+      negative?: string;
+      rationale: string;
+      confidence: 'low' | 'medium' | 'high';
+      changes: string[];
+      model: string;
+      provider: string;
+      systemPrompt: { id: number | null; name: string };
+      usage?: { prompt: number; completion: number; total: number };
+    }>('/enhance', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  getEnhancementHistory: (limit = 50) =>
+    request<{
+      enhancements: Array<{
+        id: number;
+        originalText: string;
+        enhancedText: string;
+        rationale: string;
+        confidence: string;
+        provider: string;
+        model: string;
+        createdAt: string;
+      }>;
+    }>(`/enhance/history?limit=${limit}`),
 };

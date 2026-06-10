@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useSettings } from '../hooks/useSettings';
 import { api } from '../api/client';
 import LoadingSpinner from '../components/LoadingSpinner';
+import AIEnhancementSection from '../components/AIEnhancementSection';
 
 export default function Settings() {
   const { keyIsSet, loading, setApiKey } = useSettings();
@@ -209,6 +210,9 @@ export default function Settings() {
           {saving ? 'Saving...' : keyIsSet ? 'Update Key' : 'Save Key'}
         </button>
       </form>
+
+      {/* AI Enhancement */}
+      <AIEnhancementSection />
 
       {/* imgbb configuration */}
       <div className="card">

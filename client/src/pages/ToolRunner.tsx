@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { api } from '../api/client';
 import DynamicField from '../components/DynamicField';
+import type { EnhanceResult } from '../components/EnhanceButton';
 import LoadingSpinner from '../components/LoadingSpinner';
 import type { RhNodeField, Tool } from '@shared/types';
 
@@ -26,6 +27,30 @@ export default function ToolRunner() {
   const [error, setError] = useState('');
   const [statusMsg, setStatusMsg] = useState('');
   const [prefillFieldKey, setPrefillFieldKey] = useState<string | null>(null);
+
+  // Collect image URLs that have been uploaded (for AI enhance context)
+  const imageUrls: string[] = [];
+  if (locationState?.prefillImage?.previewUrl) imageUrls.push(locationState.prefillImage.previewUrl);
+  if (locationState?.prefillImage?.fileName && locationState.prefillImage.fileName.startsWith('http')) {
+    imageUrls.push(locationState.prefillImage.fileName);
+  }
+
+  const handleSaveEnhancedToLibrary = async (result: EnhanceResult) => {
+    const title = window.prompt('Save prompt to library — title:', result.enhanced.slice(0, 60) + '...');
+    if (!title) return;
+    try {
+      await api.createPrompt({
+        title,
+        content: result.enhanced,
+        toolId: tool?.id,
+        description: result.rationale || 'AI-enhanced prompt',
+        tags: ['enhanced', result.provider, ...(result.changes || []).slice(0, 2)],
+      });
+      window.alert('Saved to Prompts library');
+    } catch (err: any) {
+      window.alert('Failed to save: ' + err.message);
+    }
+  };
   const [quantity, setQuantity] = useState(1);
   // Track which fields the user has explicitly changed
   const [touchedFields, setTouchedFields] = useState<Set<string>>(new Set());
@@ -213,6 +238,10 @@ export default function ToolRunner() {
               <DynamicField
                 field={field}
                 value={values[fieldKey(field)] ?? ''}
+                toolId={tool?.id}
+                toolName={tool?.webappName}
+                imageUrls={imageUrls}
+                onSaveEnhancedToLibrary={handleSaveEnhancedToLibrary}
                 onChange={(v) => {
                   const key = fieldKey(field);
                   setValues((prev) => ({ ...prev, [key]: v }));

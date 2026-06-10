@@ -11,6 +11,7 @@ import Settings from './pages/Settings';
 import Gallery from './pages/Gallery';
 import UploadGallery from './pages/UploadGallery';
 import Prompts from './pages/Prompts';
+import AgentStudio from './pages/AgentStudio';
 import { ReactNode } from 'react';
 
 function ProtectedRoute({ children }: { children: ReactNode }) {
@@ -42,6 +43,7 @@ export default function App() {
             <Route path="/history/:id" element={<TaskDetail />} />
             <Route path="/gallery" element={<Gallery />} />
             <Route path="/prompts" element={<Prompts />} />
+            <Route path="/agent" element={<AgentStudio />} />
             <Route path="/uploads" element={<UploadGallery />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="*" element={<Navigate to="/" replace />} />

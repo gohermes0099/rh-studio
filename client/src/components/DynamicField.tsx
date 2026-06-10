@@ -2,6 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import type { RhNodeField, FieldType } from '@shared/types';
 import ImageCropModal from './ImageCropModal';
 import PromptPickerModal from './PromptPickerModal';
+import EnhanceButton, { type EnhanceResult } from './EnhanceButton';
+import EnhancePreview from './EnhancePreview';
+import { api } from '../api/client';
 
 interface FieldProps {
   field: RhNodeField;
@@ -10,10 +13,27 @@ interface FieldProps {
   onUpload?: (file: File) => Promise<string>;
   error?: string;
   previewUrl?: string;
+  // Optional: for AI enhance integration
+  toolId?: number;
+  toolName?: string;
+  imageUrls?: string[];
+  onSaveEnhancedToLibrary?: (result: EnhanceResult) => void;
 }
 
-function TextField({ field, value, onChange }: FieldProps) {
+function TextField({ field, value, onChange, toolId, toolName, imageUrls, onSaveEnhancedToLibrary }: FieldProps) {
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [enhanceResult, setEnhanceResult] = useState<EnhanceResult | null>(null);
+  const [prevValue, setPrevValue] = useState(value);
+  const [enhanceError, setEnhanceError] = useState('');
+
+  // Clear enhance result if user types something new
+  if (value !== prevValue && enhanceResult) {
+    setPrevValue(value);
+    setEnhanceResult(null);
+  }
+
+  // Detect if this is a likely prompt field
+  const isPromptField = /prompt|instruction|text/i.test(field.fieldName + ' ' + (field.description || ''));
 
   let isMultiline = false;
   try {
@@ -62,6 +82,17 @@ function TextField({ field, value, onChange }: FieldProps) {
             ✕
           </button>
         )}
+        {isPromptField && (
+          <EnhanceButton
+            text={value}
+            fieldName={field.fieldName}
+            toolId={toolId}
+            toolName={toolName}
+            imageUrls={imageUrls}
+            onResult={(r) => { setEnhanceResult(r); setPrevValue(value); setEnhanceError(''); }}
+            onError={setEnhanceError}
+          />
+        )}
         <button
           type="button"
           className="btn-ghost"
@@ -72,6 +103,21 @@ function TextField({ field, value, onChange }: FieldProps) {
           Saved
         </button>
       </div>
+      {enhanceError && !enhanceResult && (
+        <div style={{ marginTop: 6, fontSize: '0.78rem', color: 'var(--error)' }} role="alert">
+          {enhanceError}
+        </div>
+      )}
+      {enhanceResult && (
+        <EnhancePreview
+          result={enhanceResult}
+          originalText={prevValue}
+          onUse={(newText) => { onChange(newText); setEnhanceResult(null); setPrevValue(newText); }}
+          onSaveToLibrary={(r) => { onSaveEnhancedToLibrary?.(r); setEnhanceResult(null); }}
+          onDismiss={() => setEnhanceResult(null)}
+          onRevert={() => { onChange(prevValue); setEnhanceResult(null); }}
+        />
+      )}
       <PromptPickerModal
         open={pickerOpen}
         onSelect={handlePromptSelect}
@@ -392,6 +438,11 @@ interface DynamicFieldProps {
   onUpload?: (file: File) => Promise<string>;
   error?: string;
   previewUrl?: string;
+  // AI enhance integration
+  toolId?: number;
+  toolName?: string;
+  imageUrls?: string[];
+  onSaveEnhancedToLibrary?: (result: import('./EnhanceButton').EnhanceResult) => void;
 }
 
 export default function DynamicField(props: DynamicFieldProps) {

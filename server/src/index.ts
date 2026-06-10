@@ -12,6 +12,7 @@ import uploadRouter from './routes/upload.js';
 import uploadsRouter from './routes/uploads.js';
 import galleryRouter from './routes/gallery.js';
 import promptsRouter from './routes/prompts.js';
+import enhanceRouter from './routes/enhance.js';
 import { recoverOrphanedTasks } from './services/recovery.js';
 import { backfillGallery } from './migrations/backfillGallery.js';
 import { startTaskCleanup } from './services/taskCleanup.js';
@@ -57,6 +58,7 @@ app.use('/api/download', uploadRouter);
 app.use('/api/uploads', uploadsRouter);
 app.use('/api/gallery', galleryRouter);
 app.use('/api/prompts', promptsRouter);
+app.use('/api/enhance', enhanceRouter);
 
 // SPA fallback
 app.get(/^(?!\/api\/)/, (_req, res) => {
