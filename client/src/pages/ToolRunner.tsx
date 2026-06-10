@@ -27,6 +27,8 @@ export default function ToolRunner() {
   const [statusMsg, setStatusMsg] = useState('');
   const [prefillFieldKey, setPrefillFieldKey] = useState<string | null>(null);
   const [quantity, setQuantity] = useState(1);
+  // Track which fields the user has explicitly changed
+  const [touchedFields, setTouchedFields] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (!id) return;
@@ -46,15 +48,18 @@ export default function ToolRunner() {
         // Pre-fill the first IMAGE field if coming from uploads/gallery
         // and track which field received the prefill
         let prefilledKey: string | null = null;
+        const touched = new Set<string>();
         if (locationState?.prefillImage?.fileName) {
           const firstImageField = parsed.find((f) => f.fieldType === 'IMAGE');
           if (firstImageField) {
             const key = fieldKey(firstImageField);
             initial[key] = locationState.prefillImage.fileName;
             prefilledKey = key;
+            touched.add(key);  // Prefilled fields are "touched" so they get sent
           }
         }
         setPrefillFieldKey(prefilledKey);
+        setTouchedFields(touched);
 
         setValues(initial);
       })
@@ -69,11 +74,27 @@ export default function ToolRunner() {
   };
 
   const buildNodeInfoList = useCallback(() => {
-    return fields.map((f) => ({
-      ...f,
-      fieldValue: values[fieldKey(f)] ?? f.fieldValue ?? '',
-    }));
-  }, [fields, values]);
+    return fields.map((f) => {
+      const key = fieldKey(f);
+      const userValue = values[key];
+      const defaultValue = f.fieldValue ?? '';
+
+      // For IMAGE fields: if user didn't touch the field, send empty (don't send example.png)
+      // For other fields: use the user's value, or fall back to the default
+      let fieldValue: string;
+      if (f.fieldType === 'IMAGE') {
+        // Only use userValue if user explicitly modified it
+        fieldValue = touchedFields.has(key) ? (userValue ?? '') : '';
+      } else {
+        fieldValue = userValue ?? defaultValue;
+      }
+
+      return {
+        ...f,
+        fieldValue,
+      };
+    });
+  }, [fields, values, touchedFields]);
 
   const handleRun = async () => {
     if (!tool) return;
@@ -192,7 +213,11 @@ export default function ToolRunner() {
               <DynamicField
                 field={field}
                 value={values[fieldKey(field)] ?? ''}
-                onChange={(v) => setValues((prev) => ({ ...prev, [fieldKey(field)]: v }))}
+                onChange={(v) => {
+                  const key = fieldKey(field);
+                  setValues((prev) => ({ ...prev, [key]: v }));
+                  setTouchedFields((prev) => new Set(prev).add(key));
+                }}
                 onUpload={handleUpload}
                 previewUrl={
                   prefillFieldKey === fieldKey(field)
