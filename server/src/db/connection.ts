@@ -12,12 +12,26 @@ let rawDb: SqlJsDatabase | null = null;
 let dbPath: string = '';
 
 /**
- * Find the project root by walking up directories until we find package.json.
- * This works regardless of where the compiled file lives.
+ * Find the project root by walking up directories until we find a folder
+ * containing BOTH `client/` and `server/` (the monorepo structure).
+ * Falls back to first package.json if not found.
  */
 function findProjectRoot(start: string): string {
   let current = start;
-  for (let i = 0; i < 8; i++) {
+  for (let i = 0; i < 10; i++) {
+    // Prefer the monorepo root: has both client/ and server/
+    if (fs.existsSync(path.join(current, 'client'))
+        && fs.existsSync(path.join(current, 'server'))
+        && fs.existsSync(path.join(current, 'package.json'))) {
+      return current;
+    }
+    const parent = path.dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+  // Fallback: first package.json
+  current = start;
+  for (let i = 0; i < 10; i++) {
     if (fs.existsSync(path.join(current, 'package.json'))) {
       return current;
     }
@@ -28,41 +42,13 @@ function findProjectRoot(start: string): string {
   return start;
 }
 
-/**
- * Find existing rh-studio.db by walking up from the project root.
- * If multiple exist, prefer the canonical /data/rh-studio.db at project root.
- */
-function findExistingDb(projectRoot: string): string | null {
-  const canonical = path.join(projectRoot, 'data', 'rh-studio.db');
-  if (fs.existsSync(canonical)) return canonical;
-
-  // Walk up to 3 levels up from project root looking for stray DBs
-  let current = path.dirname(projectRoot);
-  for (let i = 0; i < 3; i++) {
-    const candidate = path.join(current, 'data', 'rh-studio.db');
-    if (fs.existsSync(candidate)) return candidate;
-    const parent = path.dirname(current);
-    if (parent === current) break;
-    current = parent;
-  }
-  return null;
-}
-
 export async function initDb(): Promise<any> {
   if (db) return db;
 
   const projectRoot = findProjectRoot(__dirname);
-  const dataDir = path.join(projectRoot, 'data');
+  dbPath = path.join(projectRoot, 'data', 'rh-studio.db');
 
-  // Look for existing DB anywhere
-  const existingDb = findExistingDb(projectRoot);
-  if (existingDb) {
-    dbPath = existingDb;
-  } else {
-    // Create new one at canonical location
-    dbPath = path.join(dataDir, 'rh-studio.db');
-  }
-
+  console.log('[db] __dirname:', __dirname);
   console.log('[db] Project root:', projectRoot);
   console.log('[db] Database path:', dbPath);
 
@@ -80,7 +66,6 @@ export async function initDb(): Promise<any> {
   }
 
   db = createDbHelper(rawDb);
-  // Persist on every write so settings/registrations don't get lost on restart
   setOnChange(() => saveDb());
   saveDb();
 
