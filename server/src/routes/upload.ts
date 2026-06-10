@@ -2,6 +2,7 @@ import { Router } from 'express';
 import multer from 'multer';
 import { getDb } from '../db/connection.js';
 import { RhClient } from '../services/rhClient.js';
+import { ImgbbService } from '../services/imgbbService.js';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -15,79 +16,103 @@ const upload = multer({
   limits: { fileSize: 50 * 1024 * 1024 },
 });
 
-router.post('/', (req, res, next) => {
-  const isJson = req.headers['content-type'] === 'application/json';
-  if (isJson) {
-    return next();
+/**
+ * Get imgbb service from server settings. Returns null if not configured.
+ */
+function getImgbbService(): ImgbbService | null {
+  const db = getDb();
+  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('imgbbApiKey') as { value: string } | undefined;
+  if (!row?.value) return null;
+  return new ImgbbService(row.value);
+}
+
+/**
+ * Unified POST /upload handler:
+ *
+ * Server-side flow (NEW):
+ * 1. Client POSTs multipart/form-data with 'file' field
+ * 2. Server uploads to imgbb (if configured)
+ * 3. Server saves metadata to uploads table
+ * 4. Returns { fileName, imgbbUrl, imgbbThumbnailUrl, uploadId }
+ *
+ * The image field value sent to RunningHub should be the imgbbUrl.
+ */
+router.post('/', upload.single('file'), async (req, res) => {
+  if (!req.file) {
+    res.status(400).json({ error: 'No file uploaded' });
+    return;
   }
-  upload.single('file')(req, res, (err) => {
-    if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') {
-      res.status(413).json({ error: 'File too large. Maximum is 50MB.' });
-      return;
-    }
-    if (err) {
-      res.status(400).json({ error: 'Upload error: ' + err.message });
-      return;
-    }
-    next();
-  });
-}, async (req, res) => {
-  const isJson = req.headers['content-type'] === 'application/json';
 
   try {
-    if (isJson) {
-      const { imgbbUrl, imgbbThumbnailUrl, originalName, mimeType, fileSize } = req.body;
-      if (!imgbbUrl || !originalName) {
-        res.status(400).json({ error: 'imgbbUrl and originalName are required' });
-        return;
-      }
-
-      const db = getDb();
-      const now = new Date().toISOString();
-      const saveToGallery = req.query.saveToGallery !== 'false';
-
-      if (saveToGallery) {
-        const result = db.run(`
-          INSERT INTO uploads (fileName, originalName, mimeType, fileSize, imgbbUrl, imgbbThumbnailUrl, createdAt)
-          VALUES (?, ?, ?, ?, ?, ?, ?)
-        `, imgbbUrl, originalName, mimeType || 'image/jpeg', fileSize || 0, imgbbUrl, imgbbThumbnailUrl || imgbbUrl, now);
-
-        res.json({ id: result.lastInsertRowid, fileName: originalName, imgbbUrl, imgbbThumbnailUrl: imgbbThumbnailUrl || imgbbUrl });
-      } else {
-        res.json({ fileName: originalName, imgbbUrl, imgbbThumbnailUrl: imgbbThumbnailUrl || imgbbUrl });
-      }
-      return;
-    }
-
-    if (!req.file) {
-      res.status(400).json({ error: 'No file uploaded' });
-      return;
-    }
-
     const db = getDb();
-    const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('apiKey') as { value: string } | undefined;
-    if (!row) {
-      res.status(400).json({ error: 'API key not configured' });
-      return;
-    }
-
-    const client = new RhClient(row.value);
-    const result = await client.uploadFile(req.file.buffer, req.file.originalname);
-
+    const now = new Date().toISOString();
     const saveToGallery = req.query.saveToGallery !== 'false';
-    if (saveToGallery) {
-      const now = new Date().toISOString();
-      db.run(`
-        INSERT INTO uploads (fileName, rhFileName, originalName, mimeType, fileSize, createdAt)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `, result.fileName, result.fileName, req.file.originalname, req.file.mimetype, req.file.size, now);
+
+    let imgbbUrl = '';
+    let imgbbThumbnailUrl = '';
+
+    // Try to upload to imgbb if configured
+    const imgbb = getImgbbService();
+    if (imgbb) {
+      try {
+        const result = await imgbb.upload(req.file.buffer, req.file.originalname, req.file.mimetype);
+        imgbbUrl = result.url;
+        imgbbThumbnailUrl = result.thumbnailUrl;
+        console.log('[upload] imgbb upload OK:', imgbbUrl);
+      } catch (imgbbErr) {
+        console.error('[upload] imgbb upload failed:', imgbbErr);
+        // Continue without imgbb - the upload will still be saved as local-only
+      }
+    } else {
+      console.warn('[upload] No imgbb API key configured — upload will not be accessible to RH');
     }
 
-    res.json(result);
+    // Use imgbb URL as the fileName (this is what RunningHub will receive as fieldValue)
+    const storedFileName = imgbbUrl || req.file.originalname;
+
+    let uploadId: number | null = null;
+    if (saveToGallery) {
+      const result = db.run(`
+        INSERT INTO uploads (fileName, originalName, mimeType, fileSize, imgbbUrl, imgbbThumbnailUrl, createdAt)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `, storedFileName, req.file.originalname, req.file.mimetype, req.file.size, imgbbUrl, imgbbThumbnailUrl, now);
+      uploadId = result.lastInsertRowid as number;
+    }
+
+    res.json({
+      fileName: storedFileName,        // imgbb URL — this is what RH needs
+      originalName: req.file.originalname,
+      imgbbUrl,
+      imgbbThumbnailUrl,
+      uploadId,
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     res.status(500).json({ error: message });
   }
+});
+
+/**
+ * GET /api/upload/key/status — check if imgbb is configured on the server
+ */
+router.get('/key/status', (_req, res) => {
+  const db = getDb();
+  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('imgbbApiKey') as { value: string } | undefined;
+  res.json({ keyIsSet: !!row?.value });
+});
+
+/**
+ * POST /api/upload/key — set imgbb API key on the server
+ */
+router.post('/key', (req, res) => {
+  const { apiKey } = req.body;
+  if (!apiKey || typeof apiKey !== 'string') {
+    res.status(400).json({ error: 'apiKey is required' });
+    return;
+  }
+  const db = getDb();
+  db.run('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', 'imgbbApiKey', apiKey);
+  res.json({ keyIsSet: true });
 });
 
 function extToMime(ext: string): string {

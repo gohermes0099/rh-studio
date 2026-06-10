@@ -20,10 +20,10 @@ function getRhClient(): RhClient {
   return new RhClient(row.value as string);
 }
 
-function getImgbbService(): ImgbbService {
+function getImgbbService(): ImgbbService | null {
   const db = getDb();
   const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('imgbbApiKey');
-  if (!row?.value) throw new Error('imgbb API key not configured');
+  if (!row?.value) return null;
   return new ImgbbService(row.value as string);
 }
 
@@ -164,7 +164,7 @@ router.get('/:id', async (req, res) => {
               const prompt = extractPrompt(nodeInfoList);
               const saved = await saveGalleryResults({
                 results: queryResult.results,
-                imgbbService: imgbb,
+                imgbbService: imgbb || undefined,
                 taskId: task.taskId as string,
                 toolId: task.toolId as number,
                 toolName: (task.toolName as string) || 'Tool #' + task.toolId,
@@ -174,7 +174,7 @@ router.get('/:id', async (req, res) => {
                 console.log('[tasks] Saved ' + saved + ' result(s) to gallery for task ' + task.taskId);
               }
             } catch (imgbbErr) {
-              console.error('[tasks] imgbb upload failed:', imgbbErr);
+              console.error('[tasks] gallery save failed:', imgbbErr);
             }
           }
         } else if (queryResult.status === 'FAILED') {

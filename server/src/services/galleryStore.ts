@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import fs from 'node:fs/promises';
 import { getDb } from '../db/connection.js';
 import type { ImgbbService } from './imgbbService.js';
 
@@ -11,7 +12,7 @@ interface RhResult {
 
 interface SaveOptions {
   results: RhResult[];
-  imgbbService: ImgbbService;
+  imgbbService?: ImgbbService | null;
   taskId?: string;
   toolId: number;
   toolName: string;
@@ -53,8 +54,23 @@ export async function saveGalleryResults(options: SaveOptions): Promise<number> 
 
   for (const r of options.results) {
     try {
-      const imgbbResult = await options.imgbbService.uploadFromUrl(r.url);
+      let displayUrl: string;
+      let originalUrl = r.url;
       const ext = extFromOutputType(r.outputType);
+
+      if (options.imgbbService) {
+        // Re-upload to imgbb for permanent hosting
+        try {
+          const imgbbResult = await options.imgbbService.uploadFromUrl(r.url);
+          displayUrl = imgbbResult.url;
+        } catch (imgbbErr) {
+          console.error('[galleryStore] imgbb re-upload failed, using RH URL:', imgbbErr);
+          displayUrl = r.url;  // Fall back to RH CDN URL
+        }
+      } else {
+        // No imgbb — use the RH URL directly (it will expire but at least we have a record)
+        displayUrl = r.url;
+      }
 
       db.run(`
         INSERT INTO gallery_items (taskId, toolId, toolName, fileName, originalUrl, outputType, prompt, nodeId, createdAt)
@@ -63,8 +79,8 @@ export async function saveGalleryResults(options: SaveOptions): Promise<number> 
         options.taskId ?? null,
         options.toolId,
         options.toolName,
-        imgbbResult.url,
-        r.url,
+        displayUrl,
+        originalUrl,
         ext,
         options.prompt ?? '',
         r.nodeId,
@@ -72,7 +88,7 @@ export async function saveGalleryResults(options: SaveOptions): Promise<number> 
       );
       saved++;
     } catch (err) {
-      console.error('[galleryStore] Failed to upload result to imgbb for nodeId=' + r.nodeId + ':', err);
+      console.error('[galleryStore] Failed to save gallery item for nodeId=' + r.nodeId + ':', err);
     }
   }
 

@@ -137,79 +137,44 @@ export const api = {
   deletePrompt: (id: number) =>
     request<{ success: boolean }>(`/prompts/${id}`, { method: 'DELETE' }),
 
-  uploadFile: async (file: File, saveToGallery?: boolean): Promise<{ fileName: string; imgbbUrl: string; imgbbThumbnailUrl: string; uploadId?: number }> => {
-    const imgbbApiKey = localStorage.getItem('imgbbApiKey');
-    if (!imgbbApiKey) {
-      throw new ApiError('Configure imgbb API key in Settings first');
-    }
-
-    const imgbbFolder = localStorage.getItem('imgbbFolder') || undefined;
-
-    // Convert file to base64
-    const base64 = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const result = reader.result as string;
-        // data:applicationjpeg;base64,/9j/4AAQ... → strip prefix
-        const base64Data = result.split(',')[1];
-        resolve(base64Data);
-      };
-      reader.onerror = () => reject(new ApiError('Failed to read file'));
-      reader.readAsDataURL(file);
-    });
-
-    // Build imgbb upload URL
-    let uploadUrl = `https://api.imgbb.com/1/upload?key=${encodeURIComponent(imgbbApiKey)}`;
-    if (imgbbFolder) {
-      uploadUrl += `&folder=${encodeURIComponent(imgbbFolder)}`;
-    }
-
-    // POST directly to imgbb
-    const form = new FormData();
-    form.append('image', base64);
-    form.append('name', file.name);
-
-    let imgbbRes: { url: string; thumb: { url: string } };
-    try {
-      const res = await fetch(uploadUrl, { method: 'POST', body: form });
-      const data = await res.json();
-      if (!res.ok || !data?.data) {
-        throw new ApiError(data?.error || 'imgbb upload failed', res.status);
-      }
-      imgbbRes = data.data;
-    } catch (err) {
-      if (err instanceof ApiError) throw err;
-      throw new ApiError('Failed to reach imgbb — check your API key and try again');
-    }
-
-    const imgbbUrl = imgbbRes.url;
-    const imgbbThumbnailUrl = imgbbRes.thumb?.url || imgbbUrl;
-
-    // Save metadata to backend
+  uploadFile: async (file: File, saveToGallery?: boolean): Promise<{ fileName: string; originalName?: string; imgbbUrl: string; imgbbThumbnailUrl: string; uploadId?: number }> => {
+    // Server-side upload: the server receives the file, uploads to imgbb, and returns the URL.
+    // This way the imgbb API key never leaves the server.
     const query = saveToGallery === false ? '?saveToGallery=false' : '';
-    const metadataRes = await fetch(`${BASE}/upload${query}`, {
+    const form = new FormData();
+    form.append('file', file, file.name);
+
+    const headers: Record<string, string> = {};
+    const token = localStorage.getItem('auth_token');
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    const res = await fetch(`${BASE}/upload${query}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        imgbbUrl,
-        imgbbThumbnailUrl,
-        originalName: file.name,
-        mimeType: file.type,
-        fileSize: file.size,
-      }),
+      headers,
+      body: form,
     });
 
-    if (!metadataRes.ok) {
-      const body = await metadataRes.json().catch(() => ({ error: metadataRes.statusText }));
-      throw new ApiError(body.error || 'Failed to save upload metadata', metadataRes.status);
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({ error: res.statusText }));
+      throw new ApiError(body.error || 'Upload failed', res.status);
     }
 
-    const result = await metadataRes.json();
+    const result = await res.json();
     return {
-      fileName: file.name,
-      imgbbUrl,
-      imgbbThumbnailUrl,
-      uploadId: result.id,
+      fileName: result.fileName,         // This is the imgbb URL — what RH needs
+      originalName: result.originalName || file.name,
+      imgbbUrl: result.imgbbUrl,
+      imgbbThumbnailUrl: result.imgbbThumbnailUrl,
+      uploadId: result.uploadId,
     };
   },
+
+  getImgbbKeyStatus: () =>
+    request<{ keyIsSet: boolean }>('/upload/key/status'),
+
+  setImgbbKey: (apiKey: string) =>
+    request<{ keyIsSet: boolean }>('/upload/key', {
+      method: 'POST',
+      body: JSON.stringify({ apiKey }),
+    }),
 };

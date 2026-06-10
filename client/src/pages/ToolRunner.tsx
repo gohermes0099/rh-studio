@@ -64,6 +64,7 @@ export default function ToolRunner() {
 
   const handleUpload = async (file: File): Promise<string> => {
     const result = await api.uploadFile(file);
+    // result.fileName is the imgbb URL — this is what RunningHub needs as fieldValue
     return result.fileName;
   };
 
