@@ -138,15 +138,19 @@ export const api = {
     request<{ success: boolean }>(`/prompts/${id}`, { method: 'DELETE' }),
 
   uploadFile: async (file: File, saveToGallery?: boolean): Promise<{ fileName: string; originalName?: string; imgbbUrl: string; imgbbThumbnailUrl: string; uploadId?: number }> => {
-    // Server-side upload: the server receives the file, uploads to imgbb, and returns the URL.
-    // This way the imgbb API key never leaves the server.
     const query = saveToGallery === false ? '?saveToGallery=false' : '';
     const form = new FormData();
     form.append('file', file, file.name);
 
     const headers: Record<string, string> = {};
     const token = localStorage.getItem('auth_token');
-    if (token) headers['Authorization'] = `Bearer ${token}`;
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    } else {
+      console.warn('[upload] No auth token found in localStorage');
+    }
+
+    console.log('[upload] Sending file to server:', file.name, file.size, 'bytes');
 
     const res = await fetch(`${BASE}/upload${query}`, {
       method: 'POST',
@@ -154,14 +158,18 @@ export const api = {
       body: form,
     });
 
+    console.log('[upload] Response status:', res.status);
+
     if (!res.ok) {
       const body = await res.json().catch(() => ({ error: res.statusText }));
+      console.error('[upload] Failed:', body);
       throw new ApiError(body.error || 'Upload failed', res.status);
     }
 
     const result = await res.json();
+    console.log('[upload] Success:', result);
     return {
-      fileName: result.fileName,         // This is the imgbb URL — what RH needs
+      fileName: result.fileName,
       originalName: result.originalName || file.name,
       imgbbUrl: result.imgbbUrl,
       imgbbThumbnailUrl: result.imgbbThumbnailUrl,

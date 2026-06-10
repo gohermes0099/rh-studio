@@ -28,7 +28,16 @@ const clientDist = path.join(projectRoot, 'client', 'dist');
 
 console.log('Client dist path:', clientDist);
 
-app.use(express.static(clientDist));
+app.use(express.static(clientDist, {
+  // Disable caching to ensure users always get the latest JS
+  setHeaders: (res, path) => {
+    if (path.endsWith('.html')) {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    } else {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    }
+  },
+}));
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
