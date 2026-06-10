@@ -14,6 +14,7 @@ router.get('/', (_req, res) => {
   try {
     const items = listGalleryItems().map((item) => ({
       id: item.id,
+      taskId: item.taskId,  // RH taskId (string) — used for re-run
       toolId: item.toolId,
       toolName: item.toolName,
       fileName: item.fileName,

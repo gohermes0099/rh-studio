@@ -218,10 +218,11 @@ export function listGalleryItems(): Array<{
   prompt: string;
   sourceUploadUrl: string;
   sourceUploadId: number | null;
+  originalUrl: string;
 }> {
   const db = getDb();
   return db.prepare(`
-    SELECT id, taskId, toolId, toolName, fileName, outputType, nodeId, createdAt, prompt, sourceUploadUrl, sourceUploadId
+    SELECT id, taskId, toolId, toolName, fileName, originalUrl, outputType, nodeId, createdAt, prompt, sourceUploadUrl, sourceUploadId
     FROM gallery_items
     WHERE deletedAt IS NULL
     ORDER BY createdAt DESC

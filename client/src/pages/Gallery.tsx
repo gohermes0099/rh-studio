@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useState as React } from 'react';
 import { useNavigate } from 'react-router-dom';
 import LoadingSpinner from '../components/LoadingSpinner';
 import ConfirmDialog from '../components/ConfirmDialog';
@@ -7,6 +7,7 @@ import { api } from '../api/client';
 
 interface GalleryItem {
   id: number;
+  taskId: string | null;
   toolId: number;
   toolName: string;
   fileName: string;
@@ -16,7 +17,10 @@ interface GalleryItem {
   prompt?: string;
   sourceUploadUrl?: string;
   sourceUploadId?: number | null;
+  originalUrl?: string;
 }
+
+type ViewMode = 'after' | 'before' | 'compare';
 
 /** Render a long URL in a way that stays inside its container (no overflow) */
 function UrlBox({ url, label }: { url: string; label?: string }) {
@@ -50,6 +54,33 @@ function UrlBox({ url, label }: { url: string; label?: string }) {
   );
 }
 
+/** Image with onError fallback */
+function SafeImage({ src, alt, style, fallback }: { src: string; alt: string; style?: React.CSSProperties; fallback?: React.ReactNode }) {
+  const [errored, setErrored] = useState(false);
+  if (errored || !src) {
+    return (
+      <div style={{
+        ...style,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        color: 'var(--text-dim)', fontSize: '0.85rem', textAlign: 'center' as const, padding: 20,
+        background: 'rgba(0,0,0,0.3)', borderRadius: 4,
+      }}>
+        {fallback || (
+          <>
+            <div>
+              <div style={{ fontSize: '1.5rem', marginBottom: 8 }}>🖼️</div>
+              Image unavailable
+              <br />
+              <span style={{ fontSize: '0.7rem', opacity: 0.7 }}>{errored ? 'Failed to load' : 'No source'}</span>
+            </div>
+          </>
+        )}
+      </div>
+    );
+  }
+  return <img src={src} alt={alt} style={style} onError={() => setErrored(true)} loading="lazy" />;
+}
+
 export default function Gallery() {
   const navigate = useNavigate();
   const [items, setItems] = useState<GalleryItem[]>([]);
@@ -58,7 +89,7 @@ export default function Gallery() {
   const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null);
   const [toolPickerOpen, setToolPickerOpen] = useState(false);
   const [rerunning, setRerunning] = useState(false);
-  const [viewMode, setViewMode] = useState<'after' | 'before'>('after');
+  const [viewMode, setViewMode] = useState<ViewMode>('after');
 
   useEffect(() => {
     const token = localStorage.getItem('auth_token');
@@ -96,7 +127,6 @@ export default function Gallery() {
     try {
       const token = localStorage.getItem('auth_token');
       let fileName = '';
-      // Use the source upload (original) if available, otherwise the result
       if (selectedImage.sourceUploadId) {
         const res = await fetch(`/api/uploads/${selectedImage.sourceUploadId}/file`, {
           headers: token ? { 'Authorization': `Bearer ${token}` } : {},
@@ -142,10 +172,11 @@ export default function Gallery() {
       });
       if (!tasksRes.ok) throw new Error('Failed to list tasks');
       const tasksData = await tasksRes.json();
-      // The gallery item stores the RH taskId, find the DB row with that
-      const originalTask = tasksData.tasks.find((t: any) => t.taskId === (selectedImage as any).taskId);
+      // Find the task by RH taskId (matches the gallery's taskId)
+      const allTasks = tasksData.tasks || [];
+      const originalTask = allTasks.find((t: any) => t.taskId === selectedImage.taskId);
       if (!originalTask) {
-        throw new Error('Original task not found in DB');
+        throw new Error('Original task not found — try a fresh upload to test re-run');
       }
       const result = await api.rerunTask(originalTask.id);
       navigate(`/history/${result.task.id}`);
@@ -158,6 +189,13 @@ export default function Gallery() {
   };
 
   if (loading) return <LoadingSpinner />;
+
+  // Helper: get the result image URL
+  const resultImgUrl = (item: GalleryItem) =>
+    item.fileName.startsWith('http') ? item.fileName : `/api/gallery/files/${item.id}`;
+
+  // Helper: get the source image URL
+  const sourceImgUrl = (item: GalleryItem) => item.sourceUploadUrl || '';
 
   return (
     <div className="page">
@@ -189,16 +227,16 @@ export default function Gallery() {
               >
                 Delete
               </button>
-              <img
-                src={item.fileName.startsWith('http') ? item.fileName : `/api/gallery/files/${item.id}`}
+              <SafeImage
+                src={resultImgUrl(item)}
                 alt={`${item.toolName} result`}
-                loading="lazy"
                 style={{
                   width: '100%',
                   height: 280,
                   objectFit: 'cover',
                   display: 'block',
                 }}
+                fallback={<div style={{ height: 280, display: 'flex', alignItems: 'center' }}>Image unavailable</div>}
               />
               <div style={{ padding: '12px 16px' }}>
                 <div style={{ fontWeight: 600, marginBottom: 4 }}>{item.toolName}</div>
@@ -263,79 +301,114 @@ export default function Gallery() {
               </button>
             </div>
 
-            {/* Image area with before/after toggle */}
+            {/* Image area */}
             <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 8, minHeight: 0 }}>
-              {/* Image display - shows AFTER or BEFORE based on viewMode */}
-              <div
-                style={{
-                  flex: 1,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  background: 'rgba(0, 0, 0, 0.4)',
-                  borderRadius: 'var(--radius-lg)',
-                  minHeight: 'min(55vh, 400px)',
-                  padding: 8,
-                  overflow: 'hidden',
-                  position: 'relative' as const,
-                }}
-              >
-                {viewMode === 'after' ? (
-                  selectedImage.fileName.startsWith('http') ? (
-                    <img
-                      src={selectedImage.fileName}
-                      alt="Result"
-                      style={{ maxWidth: '100%', maxHeight: '55vh', objectFit: 'contain' as const, borderRadius: 4 }}
-                    />
-                  ) : (
-                    <img
-                      src={`/api/gallery/files/${selectedImage.id}`}
-                      alt="Result"
-                      style={{ maxWidth: '100%', maxHeight: '55vh', objectFit: 'contain' as const, borderRadius: 4 }}
-                    />
-                  )
-                ) : selectedImage.sourceUploadUrl ? (
-                  <img
-                    src={selectedImage.sourceUploadUrl}
-                    alt="Source"
-                    style={{ maxWidth: '100%', maxHeight: '55vh', objectFit: 'contain' as const, borderRadius: 4 }}
-                  />
-                ) : (
-                  <div style={{ color: 'var(--text-dim)', fontSize: '0.85rem', textAlign: 'center' as const, padding: 20 }}>
-                    No source image available
-                    <br />
-                    <span style={{ fontSize: '0.72rem' }}>(this task was created before source tracking)</span>
+              {viewMode === 'compare' ? (
+                // SIDE-BY-SIDE compare mode
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(min(280px, 100%), 1fr))',
+                  gap: 8,
+                }}>
+                  <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 4 }}>
+                    <div style={{
+                      fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.1em',
+                      color: 'var(--text-dim)', textAlign: 'center' as const,
+                    }}>BEFORE</div>
+                    <div style={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      background: 'rgba(0, 0, 0, 0.3)', borderRadius: 'var(--radius-lg)',
+                      minHeight: 'min(50vh, 350px)', padding: 8, overflow: 'hidden',
+                    }}>
+                      <SafeImage
+                        src={sourceImgUrl(selectedImage)}
+                        alt="Source"
+                        style={{ maxWidth: '100%', maxHeight: '50vh', objectFit: 'contain' as const, borderRadius: 4 }}
+                        fallback={<div style={{ color: 'var(--text-dim)', fontSize: '0.85rem', textAlign: 'center' as const }}>No source available</div>}
+                      />
+                    </div>
                   </div>
-                )}
-              </div>
-
-              {/* View toggle (only if source exists) */}
-              {selectedImage.sourceUploadUrl && (
-                <div style={{ display: 'flex', justifyContent: 'center' }}>
-                  <div style={{
-                    display: 'inline-flex',
-                    background: 'rgba(0, 0, 0, 0.3)',
-                    borderRadius: 999,
-                    padding: 4,
-                    gap: 4,
-                  }}>
-                    <button
-                      onClick={() => setViewMode('after')}
-                      className={viewMode === 'after' ? 'btn-primary' : 'btn-ghost'}
-                      style={{ borderRadius: 999, padding: '6px 18px', fontSize: '0.8rem', minWidth: 80 }}
-                    >
-                      Result
-                    </button>
-                    <button
-                      onClick={() => setViewMode('before')}
-                      className={viewMode === 'before' ? 'btn-primary' : 'btn-ghost'}
-                      style={{ borderRadius: 999, padding: '6px 18px', fontSize: '0.8rem', minWidth: 80 }}
-                    >
-                      Original
-                    </button>
+                  <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 4 }}>
+                    <div style={{
+                      fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.1em',
+                      color: 'var(--accent-cyan)', textAlign: 'center' as const,
+                    }}>AFTER</div>
+                    <div style={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      background: 'rgba(0, 0, 0, 0.3)', borderRadius: 'var(--radius-lg)',
+                      minHeight: 'min(50vh, 350px)', padding: 8, overflow: 'hidden',
+                    }}>
+                      <SafeImage
+                        src={resultImgUrl(selectedImage)}
+                        alt="Result"
+                        style={{ maxWidth: '100%', maxHeight: '50vh', objectFit: 'contain' as const, borderRadius: 4 }}
+                      />
+                    </div>
                   </div>
                 </div>
+              ) : (
+                // Single image mode
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    background: 'rgba(0, 0, 0, 0.4)',
+                    borderRadius: 'var(--radius-lg)',
+                    minHeight: 'min(55vh, 400px)',
+                    padding: 8,
+                    overflow: 'hidden',
+                  }}
+                >
+                  <SafeImage
+                    src={viewMode === 'before' ? sourceImgUrl(selectedImage) : resultImgUrl(selectedImage)}
+                    alt={viewMode === 'before' ? 'Source' : 'Result'}
+                    style={{ maxWidth: '100%', maxHeight: '55vh', objectFit: 'contain' as const, borderRadius: 4 }}
+                    fallback={
+                      viewMode === 'before'
+                        ? <div style={{ color: 'var(--text-dim)', fontSize: '0.85rem', textAlign: 'center' as const, padding: 20 }}>
+                            No source image available
+                            <br />
+                            <span style={{ fontSize: '0.7rem' }}>(this task was created before source tracking)</span>
+                          </div>
+                        : undefined
+                    }
+                  />
+                </div>
               )}
+
+              {/* View toggle */}
+              <div style={{ display: 'flex', justifyContent: 'center', flexWrap: 'wrap' as const, gap: 6 }}>
+                <div style={{
+                  display: 'inline-flex',
+                  background: 'rgba(0, 0, 0, 0.3)',
+                  borderRadius: 999,
+                  padding: 4,
+                  gap: 4,
+                }}>
+                  <button
+                    onClick={() => setViewMode('after')}
+                    className={viewMode === 'after' ? 'btn-primary' : 'btn-ghost'}
+                    style={{ borderRadius: 999, padding: '6px 14px', fontSize: '0.8rem', minWidth: 70 }}
+                  >
+                    Result
+                  </button>
+                  <button
+                    onClick={() => setViewMode('before')}
+                    className={viewMode === 'before' ? 'btn-primary' : 'btn-ghost'}
+                    style={{ borderRadius: 999, padding: '6px 14px', fontSize: '0.8rem', minWidth: 70 }}
+                  >
+                    Original
+                  </button>
+                  <button
+                    onClick={() => setViewMode('compare')}
+                    className={viewMode === 'compare' ? 'btn-primary' : 'btn-ghost'}
+                    style={{ borderRadius: 999, padding: '6px 14px', fontSize: '0.8rem', minWidth: 70 }}
+                  >
+                    Compare
+                  </button>
+                </div>
+              </div>
             </div>
 
             {/* Bottom info panel: prompt + urls + actions */}
@@ -388,6 +461,7 @@ export default function Gallery() {
                     disabled={rerunning}
                     className="btn-primary"
                     style={{ flex: '1 1 110px', minWidth: 0, fontSize: '0.82rem', padding: '8px 12px' }}
+                    title={selectedImage.taskId ? `Re-run task ${selectedImage.taskId}` : 'No original task linked'}
                   >
                     {rerunning ? 'Re-running...' : '🔄 Re-run'}
                   </button>
@@ -400,7 +474,7 @@ export default function Gallery() {
                   </button>
                   <a
                     href={`/api/gallery/files/${selectedImage.id}?dl=1`}
-                    download={`${selectedImage.toolName}-${viewMode}`}
+                    download={`${selectedImage.toolName}-result`}
                     className="btn-primary"
                     style={{ display: 'inline-block', padding: '8px 12px', textDecoration: 'none', textAlign: 'center' as const, fontSize: '0.82rem', flex: '0 0 auto' }}
                   >
