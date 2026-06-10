@@ -21,7 +21,9 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3001;
 
-const projectRoot = path.resolve(__dirname, '../../');
+// Find project root regardless of where the compiled file lives
+// (could be dist/server/src/ or dist/ depending on tsconfig)
+const projectRoot = path.resolve(__dirname, '../../../..');
 const clientDist = path.join(projectRoot, 'client', 'dist');
 
 console.log('Client dist path:', clientDist);

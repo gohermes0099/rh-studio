@@ -198,7 +198,7 @@ router.get('/:taskId/:nodeId', async (req, res) => {
       return;
     }
 
-    const projectRoot = path.resolve(__dirname, '../../..');
+    const projectRoot = path.resolve(__dirname, '../../../..');
     const downloadsDir = await resolveDownloadsDir(projectRoot, taskId);
 
     if (!downloadsDir) {
