@@ -15,16 +15,16 @@ const router = Router();
 
 function getRhClient(): RhClient {
   const db = getDb();
-  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('apiKey') as { value: string } | undefined;
+  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('apiKey');
   if (!row) throw new Error('API key not configured');
-  return new RhClient(row.value);
+  return new RhClient(row.value as string);
 }
 
 function getImgbbService(): ImgbbService {
   const db = getDb();
-  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('imgbbApiKey') as { value: string } | undefined;
+  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('imgbbApiKey');
   if (!row?.value) throw new Error('imgbb API key not configured');
-  return new ImgbbService(row.value);
+  return new ImgbbService(row.value as string);
 }
 
 router.post('/run', async (req, res) => {
@@ -53,8 +53,6 @@ router.post('/run', async (req, res) => {
 
     const client = getRhClient();
 
-    // Build nodeInfoList in the format RH expects, preserving fieldData for LIST
-    // and description for all nodes (as shown in RH's own curl examples)
     const stripped: RhNodeField[] = nodeInfoList.map((f) => {
       const entry: RhNodeField = {
         nodeId: f.nodeId,
@@ -79,10 +77,10 @@ router.post('/run', async (req, res) => {
       FAILED: 'FAILED',
     };
     const status = statusMap[result.status] || 'PENDING';
-    db.prepare(`
+    db.run(`
       INSERT INTO tasks (taskId, toolId, status, nodeInfoList, createdAt, updatedAt)
       VALUES (?, ?, ?, ?, ?, ?)
-    `).run(result.taskId, tool.id, status, JSON.stringify(nodeInfoList), now, now);
+    `, result.taskId, tool.id, status, JSON.stringify(nodeInfoList), now, now);
 
     const task = db.prepare('SELECT * FROM tasks WHERE taskId = ?').get(result.taskId);
     res.status(201).json({ task });
@@ -103,7 +101,7 @@ router.get('/', (req, res) => {
     LEFT JOIN tools tl ON tl.id = t.toolId
     WHERE 1=1
   `;
-  const params: unknown[] = [];
+  const params: (string | number)[] = [];
 
   if (status && typeof status === 'string') {
     sql += ' AND t.status = ?';
@@ -125,27 +123,12 @@ router.get('/', (req, res) => {
 router.get('/:id', async (req, res) => {
   try {
     const db = getDb();
-    const task = db.prepare(`
+    let task = db.prepare(`
       SELECT t.*, tl.webappName as toolName
       FROM tasks t
       LEFT JOIN tools tl ON tl.id = t.toolId
       WHERE t.id = ?
-    `).get(Number(req.params.id)) as {
-      id: number;
-      taskId: string;
-      status: string;
-      createdAt: string;
-      pollCount: number;
-      resultFiles: string;
-      errorMessage?: string;
-      failedReason?: string;
-      toolName?: string;
-      nodeInfoList: string;
-      toolId: number;
-      updatedAt: string;
-      completedAt?: string;
-      lastPolledAt?: string;
-    } | undefined;
+    `).get(Number(req.params.id)) as Record<string, unknown> | undefined;
 
     if (!task) {
       res.status(404).json({ error: 'Task not found' });
@@ -155,12 +138,16 @@ router.get('/:id', async (req, res) => {
     if (task.status === 'PENDING' || task.status === 'RUNNING') {
       try {
         const client = getRhClient();
-        const queryResult = await client.queryTask(task.taskId);
+        const queryResult = await client.queryTask(task.taskId as string);
 
-        const age = Date.now() - new Date(task.createdAt).getTime();
+        const age = Date.now() - new Date(task.createdAt as string).getTime();
         const maxAge = 25 * 60 * 60 * 1000;
         const now = new Date().toISOString();
-        const updates: Record<string, unknown> = { pollCount: task.pollCount + 1, lastPolledAt: now, updatedAt: now };
+        const updates: Record<string, unknown> = { 
+          pollCount: (task.pollCount as number) + 1, 
+          lastPolledAt: now, 
+          updatedAt: now 
+        };
 
         if (age > maxAge) {
           updates.status = 'EXPIRED';
@@ -170,26 +157,24 @@ router.get('/:id', async (req, res) => {
           updates.completedAt = now;
           updates.resultFiles = JSON.stringify(queryResult.results ?? []);
 
-          // Upload results to imgbb and save to gallery
           if (queryResult.results) {
             try {
               const imgbb = getImgbbService();
-              const nodeInfoList = JSON.parse(task.nodeInfoList) as RhNodeField[];
+              const nodeInfoList = JSON.parse(task.nodeInfoList as string) as RhNodeField[];
               const prompt = extractPrompt(nodeInfoList);
               const saved = await saveGalleryResults({
                 results: queryResult.results,
                 imgbbService: imgbb,
-                taskId: task.taskId,
-                toolId: task.toolId,
-                toolName: (task as any).toolName || 'Tool #' + task.toolId,
+                taskId: task.taskId as string,
+                toolId: task.toolId as number,
+                toolName: (task.toolName as string) || 'Tool #' + task.toolId,
                 prompt,
               });
               if (saved > 0) {
                 console.log('[tasks] Saved ' + saved + ' result(s) to gallery for task ' + task.taskId);
               }
             } catch (imgbbErr) {
-              console.error('[tasks] imgbb upload failed for task ' + task.taskId + ':', imgbbErr);
-              // Graceful degradation: don't fail task completion if imgbb upload fails
+              console.error('[tasks] imgbb upload failed:', imgbbErr);
             }
           }
         } else if (queryResult.status === 'FAILED') {
@@ -204,7 +189,7 @@ router.get('/:id', async (req, res) => {
 
         const setClauses = Object.keys(updates).map((k) => k + ' = ?').join(', ');
         const values = Object.values(updates);
-        db.prepare('UPDATE tasks SET ' + setClauses + ' WHERE id = ?').run(...values, task.id);
+        db.run('UPDATE tasks SET ' + setClauses + ' WHERE id = ?', ...values, task.id);
       } catch (pollErr) {
         console.error('Poll error:', pollErr);
       }
@@ -215,7 +200,7 @@ router.get('/:id', async (req, res) => {
       FROM tasks t
       LEFT JOIN tools tl ON tl.id = t.toolId
       WHERE t.id = ?
-    `).get(task.id);
+    `).get(Number(req.params.id));
 
     res.json({ task: updated });
   } catch (err) {
@@ -228,7 +213,6 @@ router.delete('/:id', async (req, res) => {
   const db = getDb();
   const taskId = Number(req.params.id);
 
-  // Fetch the task first to get the RH taskId for folder cleanup
   const task = db.prepare('SELECT taskId FROM tasks WHERE id = ?').get(taskId) as { taskId: string } | undefined;
 
   const result = db.prepare('DELETE FROM tasks WHERE id = ?').run(taskId);
@@ -237,7 +221,6 @@ router.delete('/:id', async (req, res) => {
     return;
   }
 
-  // Clean up locally cached result files — try both old (internal id) and new (RH taskId) folders
   const projectRoot = path.resolve(__dirname, '../../..');
   const oldDir = path.join(projectRoot, 'downloads', String(taskId));
   try { await fs.rm(oldDir, { recursive: true, force: true }); } catch { /* ok */ }

@@ -1,6 +1,6 @@
 import express from 'express';
 import cors from 'cors';
-import { getDb } from './db/connection.js';
+import { initDb, saveDb } from './db/connection.js';
 import { runMigrations } from './db/migrations.js';
 import settingsRouter from './routes/settings.js';
 import toolsRouter from './routes/tools.js';
@@ -33,23 +33,51 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
   res.status(500).json({ error: err.message || 'Internal server error' });
 });
 
-const db = getDb();
-runMigrations(db);
+// Graceful shutdown
+process.on('SIGINT', () => {
+  console.log('Saving database...');
+  saveDb();
+  process.exit(0);
+});
 
-// Migrate any orphaned manifest.json files from old per-task folders to gallery_items
-recoverOrphanedTasks().then(({ recovered }) => {
-  if (recovered > 0) {
-    console.log(`[startup] Recovered ${recovered} gallery item(s) from old task manifests`);
+process.on('SIGTERM', () => {
+  console.log('Saving database...');
+  saveDb();
+  process.exit(0);
+});
+
+// Initialize database and start server
+async function start() {
+  try {
+    const db = await initDb();
+    runMigrations(db);
+    
+    // Auto-save every 30 seconds
+    setInterval(() => {
+      saveDb();
+    }, 30000);
+
+    // Migrate any orphaned manifest.json files from old per-task folders to gallery_items
+    recoverOrphanedTasks().then(({ recovered }) => {
+      if (recovered > 0) {
+        console.log(`[startup] Recovered ${recovered} gallery item(s) from old task manifests`);
+      }
+    }).catch((err) => {
+      console.error('[startup] Recovery failed:', err);
+    });
+
+    // Auto-cleanup old tasks (tasks are ephemeral, gallery_items are independent)
+    startTaskCleanup();
+
+    app.listen(PORT, () => {
+      console.log(`Server listening on port ${PORT}`);
+    });
+  } catch (error) {
+    console.error('Failed to start server:', error);
+    process.exit(1);
   }
-}).catch((err) => {
-  console.error('[startup] Recovery failed:', err);
-});
+}
 
-// Auto-cleanup old tasks (tasks are ephemeral, gallery_items are independent)
-startTaskCleanup();
-
-app.listen(PORT, () => {
-  console.log(`Server listening on port ${PORT}`);
-});
+start();
 
 export default app;

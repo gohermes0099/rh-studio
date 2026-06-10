@@ -1,12 +1,11 @@
 # RH-Studio Dockerfile
-# Multi-stage build: build -> production
+# Production image using sql.js (no native compilation needed)
 
-# ===== BUILD STAGE =====
-FROM node:20-alpine AS builder
+FROM node:20-alpine
 
 WORKDIR /app
 
-# Copy package files
+# Copy workspace files
 COPY package*.json ./
 COPY client/package*.json ./client/
 COPY server/package*.json ./server/
@@ -15,25 +14,11 @@ COPY shared/package*.json ./shared/
 # Install all dependencies
 RUN npm install
 
-# Copy source code
+# Copy all source code
 COPY . .
 
 # Build client and server
 RUN npm run build
-
-# ===== PRODUCTION STAGE =====
-FROM node:20-alpine AS production
-
-WORKDIR /app
-
-# Install only production dependencies
-RUN npm install --omit=dev
-
-# Copy built artifacts
-COPY --from=builder /app/client/dist ./client/dist
-COPY --from=builder /app/server/dist ./server/dist
-COPY --from=builder /app/server/package.json ./server/
-COPY --from=builder /app/shared ./shared
 
 # Create directories for data
 RUN mkdir -p /app/data /app/uploads /app/downloads /app/logs

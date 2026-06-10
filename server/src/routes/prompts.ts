@@ -9,7 +9,7 @@ router.get('/', (req, res) => {
     const { search, toolId } = req.query;
 
     let sql = `SELECT * FROM prompts WHERE 1=1`;
-    const params: unknown[] = [];
+    const params: (string | number)[] = [];
 
     if (toolId && typeof toolId === 'string') {
       sql += ' AND (toolId = ? OR toolId IS NULL)';
@@ -46,10 +46,10 @@ router.post('/', (req, res) => {
 
     const db = getDb();
     const now = new Date().toISOString();
-    const result = db.prepare(`
+    const result = db.run(`
       INSERT INTO prompts (title, content, toolId, description, tags, createdAt, updatedAt)
       VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(
+    `,
       title.trim(),
       content.trim(),
       toolId ? Number(toolId) : null,
@@ -72,22 +72,22 @@ router.put('/:id', (req, res) => {
     const { title, content, toolId, description, tags } = req.body;
     const db = getDb();
 
-    const existing = db.prepare('SELECT * FROM prompts WHERE id = ?').get(Number(req.params.id));
+    const existing = db.prepare('SELECT * FROM prompts WHERE id = ?').get(Number(req.params.id)) as Record<string, unknown> | undefined;
     if (!existing) {
       res.status(404).json({ error: 'Prompt not found' });
       return;
     }
 
     const now = new Date().toISOString();
-    db.prepare(`
+    db.run(`
       UPDATE prompts SET title = ?, content = ?, toolId = ?, description = ?, tags = ?, updatedAt = ?
       WHERE id = ?
-    `).run(
-      title?.trim() ?? (existing as any).title,
-      content?.trim() ?? (existing as any).content,
-      toolId !== undefined ? Number(toolId) : (existing as any).toolId,
-      description?.trim() ?? (existing as any).description ?? '',
-      tags ? JSON.stringify(tags) : (existing as any).tags,
+    `,
+      title?.trim() ?? existing.title,
+      content?.trim() ?? existing.content,
+      toolId !== undefined ? Number(toolId) : existing.toolId,
+      description?.trim() ?? existing.description ?? '',
+      tags ? JSON.stringify(tags) : existing.tags,
       now,
       Number(req.params.id),
     );

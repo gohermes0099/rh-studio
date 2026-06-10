@@ -1,6 +1,6 @@
-import type Database from 'better-sqlite3';
+import type { Database } from 'sql.js';
 
-export function runMigrations(db: Database.Database): void {
+export function runMigrations(db: Database): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS tools (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -9,7 +9,8 @@ export function runMigrations(db: Database.Database): void {
       nodeInfoList TEXT NOT NULL,
       tags TEXT DEFAULT '[]',
       createdAt TEXT NOT NULL,
-      updatedAt TEXT NOT NULL
+      updatedAt TEXT NOT NULL,
+      coverUrl TEXT DEFAULT ''
     );
 
     CREATE TABLE IF NOT EXISTS tasks (
@@ -47,7 +48,9 @@ export function runMigrations(db: Database.Database): void {
       originalName TEXT NOT NULL,
       mimeType TEXT,
       fileSize INTEGER,
-      createdAt TEXT NOT NULL
+      createdAt TEXT NOT NULL,
+      imgbbUrl TEXT DEFAULT '',
+      imgbbThumbnailUrl TEXT DEFAULT ''
     );
 
     CREATE TABLE IF NOT EXISTS prompts (
@@ -60,17 +63,7 @@ export function runMigrations(db: Database.Database): void {
       createdAt TEXT NOT NULL,
       updatedAt TEXT NOT NULL
     );
-  `);
 
-  // Add coverUrl to tools if not present (migration for existing DBs)
-  try {
-    db.exec("ALTER TABLE tools ADD COLUMN coverUrl TEXT DEFAULT ''");
-  } catch {
-    // Column already exists — safe to ignore
-  }
-
-  // Gallery items — independent image storage that survives task cleanup
-  db.exec(`
     CREATE TABLE IF NOT EXISTS gallery_items (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       taskId TEXT,
@@ -88,23 +81,4 @@ export function runMigrations(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_gallery_items_deletedAt ON gallery_items(deletedAt);
     CREATE INDEX IF NOT EXISTS idx_gallery_items_createdAt ON gallery_items(createdAt);
   `);
-
-  // Add prompt column to gallery_items if not present (migration for existing DBs)
-  try {
-    db.exec("ALTER TABLE gallery_items ADD COLUMN prompt TEXT DEFAULT ''");
-  } catch {
-    // Column already exists — safe to ignore
-  }
-
-  // Add imgbb columns to uploads table (may already exist from prior runs)
-  try {
-    db.exec("ALTER TABLE uploads ADD COLUMN imgbbUrl TEXT DEFAULT ''");
-  } catch {
-    // Column already exists — safe to ignore
-  }
-  try {
-    db.exec("ALTER TABLE uploads ADD COLUMN imgbbThumbnailUrl TEXT DEFAULT ''");
-  } catch {
-    // Column already exists — safe to ignore
-  }
 }

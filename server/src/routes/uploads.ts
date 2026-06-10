@@ -31,33 +31,20 @@ router.get('/', (_req, res) => {
 router.get('/:id/file', async (req, res) => {
   try {
     const db = getDb();
-    const upload = db.prepare('SELECT * FROM uploads WHERE id = ?').get(Number(req.params.id)) as {
-      id: number;
-      fileName: string;
-      rhFileName: string;
-      originalName: string;
-      mimeType: string;
-      fileSize: number;
-      createdAt: string;
-      imgbbUrl: string;
-      imgbbThumbnailUrl: string;
-    } | undefined;
+    const upload = db.prepare('SELECT * FROM uploads WHERE id = ?').get(Number(req.params.id)) as Record<string, unknown> | undefined;
 
     if (!upload) {
       res.status(404).json({ error: 'Upload not found' });
       return;
     }
 
-    // If imgbb URL exists, redirect to it
-    if (upload.imgbbUrl && upload.imgbbUrl.startsWith('http')) {
-      res.redirect(302, upload.imgbbUrl);
+    if (upload.imgbbUrl && (upload.imgbbUrl as string).startsWith('http')) {
+      res.redirect(302, upload.imgbbUrl as string);
       return;
     }
 
-    // Fallback: serve legacy local file
-    const filePath = path.join(uploadsDir, upload.fileName);
+    const filePath = path.join(uploadsDir, upload.fileName as string);
 
-    // Path traversal protection
     if (filePath.indexOf(uploadsDir) !== 0) {
       res.status(400).json({ error: 'Invalid path' });
       return;
@@ -68,7 +55,7 @@ router.get('/:id/file', async (req, res) => {
       res.setHeader('Content-Disposition', `attachment; filename="${upload.originalName}"`);
     }
 
-    res.setHeader('Content-Type', upload.mimeType || 'application/octet-stream');
+    res.setHeader('Content-Type', (upload.mimeType as string) || 'application/octet-stream');
     res.sendFile(filePath);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -80,10 +67,7 @@ router.delete('/:id', async (req, res) => {
   try {
     const db = getDb();
     const uploadId = Number(req.params.id);
-    const upload = db.prepare('SELECT * FROM uploads WHERE id = ?').get(uploadId) as {
-      id: number;
-      fileName: string;
-    } | undefined;
+    const upload = db.prepare('SELECT * FROM uploads WHERE id = ?').get(uploadId) as { fileName: string } | undefined;
 
     if (!upload) {
       res.status(404).json({ error: 'Upload not found' });
@@ -92,7 +76,6 @@ router.delete('/:id', async (req, res) => {
 
     db.prepare('DELETE FROM uploads WHERE id = ?').run(uploadId);
 
-    // Delete file from disk
     const filePath = path.join(uploadsDir, upload.fileName);
     await fs.rm(filePath, { force: true });
 

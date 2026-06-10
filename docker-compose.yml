@@ -1,8 +1,6 @@
-# docker-compose.yml for RH-Studio
 version: '3.8'
 
 services:
-  # RH-Studio Backend + Frontend
   app:
     build:
       context: .
@@ -16,11 +14,15 @@ services:
       - ./data:/app/data
       - ./uploads:/app/uploads
       - ./downloads:/app/downloads
-      - ./logs:/app/logs
     networks:
       - rh-studio-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3001/api/settings"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
 
-  # Nginx Reverse Proxy with SSL
   nginx:
     image: nginx:alpine
     container_name: rh-studio-nginx
@@ -31,16 +33,11 @@ services:
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
       - ./ssl:/etc/nginx/ssl:ro
-      - ./data:/app/data:ro
     depends_on:
-      - app
+      app:
+        condition: service_healthy
     networks:
       - rh-studio-network
-    healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
 
 networks:
   rh-studio-network:

@@ -13,13 +13,13 @@ router.post('/register', async (req, res) => {
     }
 
     const db = getDb();
-    const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('apiKey') as { value: string } | undefined;
+    const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('apiKey');
     if (!row) {
       res.status(400).json({ error: 'API key not configured' });
       return;
     }
 
-    const client = new RhClient(row.value);
+    const client = new RhClient(row.value as string);
     const schema = await client.fetchSchema(webappId);
 
     if (!schema.nodeInfoList || !Array.isArray(schema.nodeInfoList)) {
@@ -32,7 +32,7 @@ router.post('/register', async (req, res) => {
     const tags = JSON.stringify(schema.tags ?? []);
     const coverUrl = schema.covers?.[0]?.thumbnailUri || schema.covers?.[0]?.url || '';
 
-    db.prepare(`
+    db.run(`
       INSERT INTO tools (webappId, webappName, coverUrl, nodeInfoList, tags, createdAt, updatedAt)
       VALUES (?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(webappId) DO UPDATE SET
@@ -41,7 +41,7 @@ router.post('/register', async (req, res) => {
         nodeInfoList = excluded.nodeInfoList,
         tags = excluded.tags,
         updatedAt = excluded.updatedAt
-    `).run(webappId, schema.webappName, coverUrl, nodeInfoList, tags, now, now);
+    `, webappId, schema.webappName, coverUrl, nodeInfoList, tags, now, now);
 
     const tool = db.prepare('SELECT * FROM tools WHERE webappId = ?').get(webappId);
     res.status(201).json({ tool });
