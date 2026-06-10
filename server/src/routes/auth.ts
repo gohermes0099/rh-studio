@@ -66,9 +66,13 @@ router.get('/me', (req, res) => {
   res.json({ authenticated: true, user: session.user });
 });
 
+// Public paths that don't require authentication
+const PUBLIC_PATHS = ['/api/auth/login', '/api/auth/me', '/api/auth/logout'];
+
 export function requireAuth(req: any, res: any, next: any) {
-  // Skip auth check for auth endpoints
-  if (req.path.startsWith('/auth/')) {
+  // Skip auth check for public endpoints
+  // req.originalUrl includes the full URL path including mount points
+  if (PUBLIC_PATHS.some(p => req.originalUrl.startsWith(p))) {
     return next();
   }
 
