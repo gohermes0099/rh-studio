@@ -19,6 +19,7 @@ const sessions = new Map<string, Session>();
 // Expose for cross-route auth (e.g. /api/gallery/files?token=)
 (global as any).__sessions = sessions;
 export { sessions };
+export { ensureHashedPassword };
 
 // Periodic cleanup of expired sessions (every 30 min)
 setInterval(() => {

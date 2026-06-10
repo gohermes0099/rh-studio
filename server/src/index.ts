@@ -76,17 +76,11 @@ async function start() {
     const db = await initDb();
     runMigrations(db);
 
-    // Ensure admin user/password exist
-    const adminUser = db.prepare('SELECT value FROM settings WHERE key = ?').get('admin_user');
-    if (!adminUser) {
-      db.run('INSERT INTO settings (key, value) VALUES (?, ?)', 'admin_user', 'admin');
-      console.log('[startup] Default admin user created (admin)');
-    }
-    const adminPass = db.prepare('SELECT value FROM settings WHERE key = ?').get('admin_password');
-    if (!adminPass) {
-      db.run('INSERT INTO settings (key, value) VALUES (?, ?)', 'admin_password', 'admin123');
-      console.log('[startup] Default admin password created (admin123) - CHANGE THIS!');
-    }
+    // Admin user/password creation is handled by auth route's ensureHashedPassword()
+    // which also handles bcrypt hashing and plain-text migration.
+    const { ensureHashedPassword } = await import('./routes/auth.js');
+    const creds = await ensureHashedPassword();
+    console.log('[startup] Admin user: ' + creds.user + ' (password is bcrypt-hashed)');
     saveDb();
 
     setInterval(() => { saveDb(); }, 30000);
