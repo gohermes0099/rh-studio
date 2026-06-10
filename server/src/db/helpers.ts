@@ -1,25 +1,32 @@
 // Database helper functions for sql.js (compatible with better-sqlite3 API)
-import type { Database } from 'sql.js';
 
 export interface Row {
   [key: string]: unknown;
 }
 
-// Prepared statement simulation for sql.js
+let onChange: (() => void) | null = null;
+
+/** Register a callback to be invoked after every write. */
+export function setOnChange(cb: (() => void) | null) {
+  onChange = cb;
+}
+
 export class Statement {
   private lastId: number = 0;
   private changesCount: number = 0;
 
-  constructor(private db: Database, private sql: string) {}
+  constructor(private db: any, private sql: string) {}
 
   run(...params: unknown[]): { changes: number; lastInsertRowid: number } {
     this.db.run(this.sql, params as (string | number | null)[]);
     this.changesCount = this.db.getRowsModified();
-    
-    // Get last inserted rowid
+
     const result = this.db.exec('SELECT last_insert_rowid() as id');
     this.lastId = result.length > 0 && result[0].values.length > 0 ? result[0].values[0][0] as number : 0;
-    
+
+    // Persist after every write
+    if (onChange) onChange();
+
     return { changes: this.changesCount, lastInsertRowid: this.lastId };
   }
 
@@ -47,14 +54,17 @@ export class Statement {
   }
 }
 
-// Extend Database with prepare method
-export function createDbHelper(db: Database) {
+export function createDbHelper(db: any) {
   return {
     prepare: (sql: string) => new Statement(db, sql),
-    exec: (sql: string) => db.exec(sql),
+    exec: (sql: string) => {
+      const result = db.exec(sql);
+      if (onChange) onChange();
+      return result;
+    },
     run: (sql: string, ...params: unknown[]) => {
       const stmt = new Statement(db, sql);
       return stmt.run(...params);
-    }
+    },
   };
 }

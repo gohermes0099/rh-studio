@@ -2,7 +2,7 @@ import initSqlJs, { Database as SqlJsDatabase } from 'sql.js';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { createDbHelper } from './helpers.js';
+import { createDbHelper, setOnChange } from './helpers.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -80,6 +80,8 @@ export async function initDb(): Promise<any> {
   }
 
   db = createDbHelper(rawDb);
+  // Persist on every write so settings/registrations don't get lost on restart
+  setOnChange(() => saveDb());
   saveDb();
 
   return db;
