@@ -67,7 +67,14 @@ router.get('/me', (req, res) => {
 });
 
 // Public paths that don't require authentication
-const PUBLIC_PATHS = ['/api/auth/login', '/api/auth/me', '/api/auth/logout'];
+const PUBLIC_PATHS = [
+  '/api/auth/login',
+  '/api/auth/me',
+  '/api/auth/logout',
+  // Gallery file serving is public — the URLs are signed/imgbb-hosted
+  // and <img> tags / download links can't send custom auth headers
+  '/api/gallery/files',
+];
 
 export function requireAuth(req: any, res: any, next: any) {
   // Skip auth check for public endpoints

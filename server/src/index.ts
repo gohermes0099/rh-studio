@@ -13,6 +13,7 @@ import uploadsRouter from './routes/uploads.js';
 import galleryRouter from './routes/gallery.js';
 import promptsRouter from './routes/prompts.js';
 import { recoverOrphanedTasks } from './services/recovery.js';
+import { backfillGallery } from './migrations/backfillGallery.js';
 import { startTaskCleanup } from './services/taskCleanup.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -93,6 +94,12 @@ async function start() {
     recoverOrphanedTasks().then(({ recovered }) => {
       if (recovered > 0) console.log('[startup] Recovered ' + recovered + ' gallery item(s)');
     }).catch((err) => { console.error('[startup] Recovery failed:', err); });
+
+    // Backfill: populate prompt and sourceUploadUrl for old gallery items
+    backfillGallery().then(({ promptsUpdated, sourcesUpdated }) => {
+      if (promptsUpdated > 0) console.log('[startup] Backfilled ' + promptsUpdated + ' gallery prompt(s)');
+      if (sourcesUpdated > 0) console.log('[startup] Backfilled ' + sourcesUpdated + ' gallery source URL(s)');
+    }).catch((err) => { console.error('[startup] Backfill failed:', err); });
 
     startTaskCleanup();
 

@@ -33,15 +33,29 @@ function extFromOutputType(outputType?: string): string {
   return 'bin';
 }
 
-export function extractPrompt(nodeInfoList: { fieldName: string; fieldValue: string }[]): string {
+export function extractPrompt(nodeInfoList: { fieldName: string; fieldValue: string; description?: string; fieldType?: string }[]): string {
+  // Priority 1: field name matches /prompt/i (case-insensitive)
   for (const node of nodeInfoList) {
     if (/prompt/i.test(node.fieldName) || node.fieldName === 'Positive Prompt') {
       return node.fieldValue || '';
     }
   }
+  // Priority 2: description contains 'prompt'
   for (const node of nodeInfoList) {
-    if (node.fieldName) {
+    if (node.description && /prompt/i.test(node.description)) {
       return node.fieldValue || '';
+    }
+  }
+  // Priority 3: fieldName === 'text' (common naming convention)
+  for (const node of nodeInfoList) {
+    if (node.fieldName === 'text' && node.fieldType === 'STRING' && node.fieldValue) {
+      return node.fieldValue;
+    }
+  }
+  // Priority 4: first STRING field with content
+  for (const node of nodeInfoList) {
+    if ((node as any).fieldType === 'STRING' && node.fieldValue) {
+      return node.fieldValue;
     }
   }
   return '';
@@ -60,10 +74,39 @@ export async function saveGalleryResults(options: SaveOptions): Promise<number> 
   try {
     const task = db.prepare('SELECT nodeInfoList FROM tasks WHERE taskId = ?').get(options.taskId || '') as { nodeInfoList: string } | undefined;
     if (task?.nodeInfoList) {
-      const fields = JSON.parse(task.nodeInfoList) as { fieldValue?: string }[];
-      const sourceFileName = fields.find(f => f.fieldValue && (f.fieldValue.startsWith('openapi/') || f.fieldValue.startsWith('api/')))?.fieldValue;
-      if (sourceFileName) {
-        const upload = db.prepare('SELECT id, imgbbUrl FROM uploads WHERE fileName = ? OR rhFileName = ?').get(sourceFileName, sourceFileName) as { id: number; imgbbUrl: string } | undefined;
+      const fields = JSON.parse(task.nodeInfoList) as { fieldValue?: string; fieldType?: string }[];
+      // Find any IMAGE field with a value (openapi/, api/, or a direct URL)
+      const imageField = fields.find(f =>
+        f.fieldType === 'IMAGE' &&
+        f.fieldValue &&
+        f.fieldValue.length > 0
+      );
+      if (imageField) {
+        const sourceFileName = imageField.fieldValue!;
+        // Try matching by RH fileName first
+        let upload = db.prepare(
+          'SELECT id, imgbbUrl FROM uploads WHERE fileName = ? OR rhFileName = ?'
+        ).get(sourceFileName, sourceFileName) as { id: number; imgbbUrl: string } | undefined;
+
+        // Fallback: if value is a URL, look up by matching the URL
+        if (!upload && sourceFileName.startsWith('http')) {
+          upload = db.prepare(
+            'SELECT id, imgbbUrl FROM uploads WHERE fileName = ? OR imgbbUrl = ?'
+          ).get(sourceFileName, sourceFileName) as { id: number; imgbbUrl: string } | undefined;
+        }
+
+        // Also check the recent uploads (last 5) as a fallback for older tasks
+        if (!upload) {
+          const recent = db.prepare(
+            'SELECT id, imgbbUrl FROM uploads WHERE imgbbUrl != \'\' ORDER BY id DESC LIMIT 5'
+          ).all() as { id: number; imgbbUrl: string }[];
+          // Just take the most recent one (best guess for old data)
+          if (recent.length > 0) {
+            upload = recent[0];
+            console.log('[galleryStore] Using most recent upload as fallback source');
+          }
+        }
+
         if (upload) {
           sourceUploadId = upload.id;
           sourceUploadUrl = upload.imgbbUrl || '';
