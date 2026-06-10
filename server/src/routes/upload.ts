@@ -27,15 +27,28 @@ function getImgbbService(): ImgbbService | null {
 }
 
 /**
+ * Get RunningHub client from server settings. Returns null if not configured.
+ */
+function getRhClient(): RhClient | null {
+  const db = getDb();
+  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('apiKey') as { value: string } | undefined;
+  if (!row?.value) return null;
+  return new RhClient(row.value);
+}
+
+/**
  * Unified POST /upload handler:
  *
- * Server-side flow (NEW):
+ * Server-side flow (NEW - dual upload):
  * 1. Client POSTs multipart/form-data with 'file' field
- * 2. Server uploads to imgbb (if configured)
- * 3. Server saves metadata to uploads table
- * 4. Returns { fileName, imgbbUrl, imgbbThumbnailUrl, uploadId }
+ * 2. Server uploads to RunningHub binary endpoint (CRITICAL — what RH actually uses)
+ * 3. Server uploads to imgbb (for gallery preview display)
+ * 4. Server saves metadata to uploads table (with both URLs)
+ * 5. Returns { fileName: rhFileName, imgbbUrl, imgbbThumbnailUrl, uploadId }
  *
- * The image field value sent to RunningHub should be the imgbbUrl.
+ * The image field value sent to RunningHub will be the `api/xxxx.png` fileName
+ * returned by the binary upload — this is the most reliable way to send images
+ * to RunningHub (avoids SSL issues when their ComfyUI tries to download external URLs).
  */
 router.post('/', upload.single('file'), async (req, res) => {
   if (!req.file) {
@@ -48,10 +61,27 @@ router.post('/', upload.single('file'), async (req, res) => {
     const now = new Date().toISOString();
     const saveToGallery = req.query.saveToGallery !== 'false';
 
+    // ============ STEP 1: Upload to RunningHub binary endpoint ============
+    // This is what RunningHub will use internally when processing the task.
+    // The returned `fileName` (e.g. "api/abc123.png") goes in the nodeInfoList fieldValue.
+    let rhFileName = '';
+    const rh = getRhClient();
+    if (rh) {
+      try {
+        const rhResult = await rh.uploadFile(req.file.buffer, req.file.originalname);
+        rhFileName = rhResult.fileName;
+        console.log('[upload] RunningHub upload OK:', rhFileName);
+      } catch (rhErr) {
+        console.error('[upload] RunningHub upload failed:', rhErr);
+        // Continue — if RH upload fails, we fall back to imgbb URL (may also fail)
+      }
+    } else {
+      console.warn('[upload] No RunningHub API key — cannot upload to RH');
+    }
+
+    // ============ STEP 2: Upload to imgbb (for gallery display) ============
     let imgbbUrl = '';
     let imgbbThumbnailUrl = '';
-
-    // Try to upload to imgbb if configured
     const imgbb = getImgbbService();
     if (imgbb) {
       try {
@@ -61,28 +91,31 @@ router.post('/', upload.single('file'), async (req, res) => {
         console.log('[upload] imgbb upload OK:', imgbbUrl);
       } catch (imgbbErr) {
         console.error('[upload] imgbb upload failed:', imgbbErr);
-        // Continue without imgbb - the upload will still be saved as local-only
+        // Continue without imgbb
       }
     } else {
-      console.warn('[upload] No imgbb API key configured — upload will not be accessible to RH');
+      console.warn('[upload] No imgbb API key — gallery will show no preview');
     }
 
-    // Use imgbb URL as the fileName (this is what RunningHub will receive as fieldValue)
-    const storedFileName = imgbbUrl || req.file.originalname;
+    // ============ STEP 3: Save to DB ============
+    // The fileName column stores the RunningHub fileName (what's sent to RH).
+    // The imgbbUrl column stores the imgbb URL (for gallery display).
+    const storedFileName = rhFileName || imgbbUrl || req.file.originalname;
 
     let uploadId: number | null = null;
     if (saveToGallery) {
       const result = db.run(`
         INSERT INTO uploads (fileName, originalName, mimeType, fileSize, imgbbUrl, imgbbThumbnailUrl, createdAt)
         VALUES (?, ?, ?, ?, ?, ?, ?)
-      `, storedFileName, req.file.originalname, req.file.mimetype, req.file.size, imgbbUrl, imgbbThumbnailUrl, now);
+      `, [storedFileName, req.file.originalname, req.file.mimetype, req.file.size, imgbbUrl, imgbbThumbnailUrl, now]);
       uploadId = result.lastInsertRowid as number;
     }
 
     res.json({
-      fileName: storedFileName,        // imgbb URL — this is what RH needs
+      fileName: storedFileName,        // RH fileName like "api/abc.png" — what RH needs
+      rhFileName,                     // explicit copy of the RH fileName
       originalName: req.file.originalname,
-      imgbbUrl,
+      imgbbUrl,                       // for gallery display
       imgbbThumbnailUrl,
       uploadId,
     });
