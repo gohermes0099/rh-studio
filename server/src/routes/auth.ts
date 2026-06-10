@@ -67,7 +67,8 @@ router.get('/me', (req, res) => {
 });
 
 export function requireAuth(req: any, res: any, next: any) {
-  if (req.path === '/api/auth/login' || req.path === '/api/auth/me') {
+  // Skip auth check for auth endpoints
+  if (req.path.startsWith('/auth/')) {
     return next();
   }
 

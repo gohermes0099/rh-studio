@@ -27,15 +27,15 @@ const clientDist = path.join(projectRoot, 'client', 'dist');
 console.log('Client dist path:', clientDist);
 
 app.use(express.static(clientDist));
+app.use(cors());
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 // Auth routes (public)
 app.use('/api/auth', authRouter);
 
 // Protected API routes
 app.use('/api', requireAuth);
-app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
 
 app.use('/api/settings', settingsRouter);
 app.use('/api/tools', toolsRouter);
