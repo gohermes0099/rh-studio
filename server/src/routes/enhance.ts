@@ -197,7 +197,7 @@ router.post('/config/test', async (req, res) => {
 router.get('/system-prompts', (_req, res) => {
   try {
     const db = getDb();
-    const userPrompts = db.prepare('SELECT id, name, content, category, description, isBuiltin, createdAt, updatedAt FROM system_prompts ORDER BY updatedAt DESC').all();
+    const userPrompts = db.prepare('SELECT id, name, content, category, description, isBuiltin, requiresInput, createdAt, updatedAt FROM system_prompts ORDER BY updatedAt DESC').all();
     const builtins = BUILTIN_TEMPLATES.map((t, i) => ({
       id: i + 1,  // 1..N
       name: t.name,
@@ -205,6 +205,7 @@ router.get('/system-prompts', (_req, res) => {
       category: t.category,
       description: t.description,
       isBuiltin: 1,
+      requiresInput: 1,
       createdAt: '',
       updatedAt: '',
     }));
@@ -216,13 +217,13 @@ router.get('/system-prompts', (_req, res) => {
 
 router.post('/system-prompts', (req, res) => {
   try {
-    const { name, content, category, description } = req.body;
+    const { name, content, category, description, requiresInput } = req.body;
     if (!name || !content) { res.status(400).json({ error: 'name and content required' }); return; }
     const db = getDb();
     const now = new Date().toISOString();
     const result = db.run(
-      'INSERT INTO system_prompts (name, content, category, description, isBuiltin, createdAt, updatedAt) VALUES (?, ?, ?, ?, 0, ?, ?)',
-      name.trim(), content, category || 'general', description || '', now, now
+      'INSERT INTO system_prompts (name, content, category, description, isBuiltin, requiresInput, createdAt, updatedAt) VALUES (?, ?, ?, ?, 0, ?, ?, ?)',
+      name.trim(), content, category || 'general', description || '', requiresInput === false ? 0 : 1, now, now
     );
     res.json({ success: true, id: result.lastInsertRowid });
   } catch (err: any) {
@@ -234,12 +235,12 @@ router.put('/system-prompts/:id', (req, res) => {
   try {
     const id = Number(req.params.id);
     if (id < 1000) { res.status(400).json({ error: 'Cannot edit built-in system prompts' }); return; }
-    const { name, content, category, description } = req.body;
+    const { name, content, category, description, requiresInput } = req.body;
     const db = getDb();
     const now = new Date().toISOString();
     db.run(
-      'UPDATE system_prompts SET name = COALESCE(?, name), content = COALESCE(?, content), category = COALESCE(?, category), description = COALESCE(?, description), updatedAt = ? WHERE id = ?',
-      name, content, category, description, now, id
+      'UPDATE system_prompts SET name = COALESCE(?, name), content = COALESCE(?, content), category = COALESCE(?, category), description = COALESCE(?, description), requiresInput = COALESCE(?, requiresInput), updatedAt = ? WHERE id = ?',
+      name, content, category, description, requiresInput === undefined ? null : (requiresInput ? 1 : 0), now, id
     );
     res.json({ success: true });
   } catch (err: any) {
@@ -273,6 +274,11 @@ router.post('/config/active-system-prompt', (req, res) => {
 
 // ───────────────────────── Enhance endpoint ─────────────────────────
 
+/** Determine placeholder text when no user input is given */
+function defaultEnhanceText(systemPromptId: number | null): string {
+  return '(Sin texto del usuario — solo imagen y system prompt)';
+}
+
 /** Simple in-memory rate limit per user (IP) — 30 req/min */
 const enhanceBuckets = new Map<string, { ts: number }[]>();
 const ENHANCE_WINDOW = 60_000;
@@ -296,10 +302,28 @@ router.post('/', async (req, res) => {
     }
 
     const { text, fieldName, toolId, toolName, imageUrls, imageBase64, imageMimeType, systemPromptId } = req.body;
-    if (!text || typeof text !== 'string' || !text.trim()) {
-      res.status(400).json({ error: 'text is required' });
+
+    // Determine system prompt + whether it requires user text
+    const sysPromptRow = (() => {
+      const id = systemPromptId ? Number(systemPromptId) : (getActiveSystemPrompt().id || 1);
+      if (id < 1000) {
+        const idx = BUILTIN_TEMPLATES.findIndex((_, i) => i + 1 === id);
+        if (idx >= 0) return { id, name: BUILTIN_TEMPLATES[idx].name, content: BUILTIN_TEMPLATES[idx].content, requiresInput: true };
+      }
+      const db = getDb();
+      const row = db.prepare('SELECT id, name, content, requiresInput FROM system_prompts WHERE id = ?').get(id) as any;
+      if (row) return { id: row.id, name: row.name, content: row.content, requiresInput: row.requiresInput !== 0 };
+      return { id: 1, name: BUILTIN_TEMPLATES[0].name, content: BUILTIN_TEMPLATES[0].content, requiresInput: true };
+    })();
+
+    // Text is optional if the system prompt doesn't require it
+    const userText = (typeof text === 'string' ? text.trim() : '');
+    if (sysPromptRow.requiresInput && !userText) {
+      res.status(400).json({ error: 'This system prompt requires a user instruction' });
       return;
     }
+    // Use a placeholder if no text but SP doesn't require it
+    const finalText = userText || 'Apply this system prompt to the attached image. Follow the system prompt exactly.';
 
     const active = getActiveProvider();
     if (!active) {
@@ -307,19 +331,7 @@ router.post('/', async (req, res) => {
       return;
     }
 
-    // Determine system prompt
-    let sysPrompt = getActiveSystemPrompt();
-    if (systemPromptId) {
-      const id = Number(systemPromptId);
-      if (id < 1000) {
-        const idx = BUILTIN_TEMPLATES.findIndex((_, i) => i + 1 === id);
-        if (idx >= 0) sysPrompt = { id, name: BUILTIN_TEMPLATES[idx].name, content: BUILTIN_TEMPLATES[idx].content };
-      } else {
-        const db = getDb();
-        const row = db.prepare('SELECT id, name, content FROM system_prompts WHERE id = ?').get(id) as { id: number; name: string; content: string } | undefined;
-        if (row) sysPrompt = row;
-      }
-    }
+    // Use sysPromptRow computed above
 
     // Build image refs
     const images: ImageRef[] = [];
@@ -334,12 +346,12 @@ router.post('/', async (req, res) => {
 
     // Augment the system prompt with webapp context
     const contextNote = toolName ? `\n\nTarget workflow: ${toolName}${fieldName ? ` (input field: ${fieldName})` : ''}.` : '';
-    const fullSystem = sysPrompt.content + contextNote;
+    const fullSystem = sysPromptRow.content + contextNote;
 
     // User message
     const userMessage = images.length
-      ? `${text}\n\n(See attached image${images.length > 1 ? 's' : ''} for context.)`
-      : text;
+      ? `${finalText}\n\n(See attached image${images.length > 1 ? 's' : ''} for context.)`
+      : finalText;
 
     const result: EnhanceResult = await active.provider.enhance({
       system: fullSystem,
@@ -362,7 +374,7 @@ router.post('/', async (req, res) => {
       result.confidence,
       active.provider.id,
       result.model,
-      sysPrompt.id || null,
+      sysPromptRow.id || null,
       imageHashes,
       JSON.stringify({ fieldName, toolId, toolName }),
       new Date().toISOString()
@@ -376,7 +388,7 @@ router.post('/', async (req, res) => {
       changes: result.changes,
       model: result.model,
       provider: active.provider.id,
-      systemPrompt: { id: sysPrompt.id, name: sysPrompt.name },
+      systemPrompt: { id: sysPromptRow.id, name: sysPromptRow.name },
       usage: result.usage,
     });
   } catch (err: any) {

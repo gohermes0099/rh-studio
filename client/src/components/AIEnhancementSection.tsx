@@ -22,6 +22,7 @@ interface SystemPrompt {
   category: string;
   description: string;
   isBuiltin: number;
+  requiresInput?: number;
 }
 
 export default function AIEnhancementSection() {

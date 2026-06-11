@@ -264,13 +264,13 @@ export const api = {
       }>;
     }>('/enhance/system-prompts'),
 
-  createSystemPrompt: (data: { name: string; content: string; category?: string; description?: string }) =>
+  createSystemPrompt: (data: { name: string; content: string; category?: string; description?: string; requiresInput?: boolean }) =>
     request<{ success: boolean; id: number }>('/enhance/system-prompts', {
       method: 'POST',
       body: JSON.stringify(data),
     }),
 
-  updateSystemPrompt: (id: number, data: { name?: string; content?: string; category?: string; description?: string }) =>
+  updateSystemPrompt: (id: number, data: { name?: string; content?: string; category?: string; description?: string; requiresInput?: boolean }) =>
     request<{ success: boolean }>(`/enhance/system-prompts/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data),

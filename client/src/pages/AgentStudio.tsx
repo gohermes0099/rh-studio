@@ -8,6 +8,7 @@ interface SystemPrompt {
   category: string;
   description: string;
   isBuiltin: number;
+  requiresInput: number;
 }
 
 interface EnhanceResult {
@@ -35,7 +36,7 @@ export default function AgentStudio() {
 
   useEffect(() => {
     api.listSystemPrompts().then(r => {
-      setSystemPrompts(r.systemPrompts);
+      setSystemPrompts(r.systemPrompts as unknown as SystemPrompt[]);
       api.getAIConfig().then(cfg => setActivePromptId(Number(cfg.activeSystemPromptId) || 1));
     }).catch(e => setError(e.message));
   }, []);
@@ -203,6 +204,24 @@ export default function AgentStudio() {
 
           <div className="card">
             <h3 style={{ fontSize: '0.95rem', marginBottom: 12 }}>3. What do you want?</h3>
+            {(() => {
+              const sp = systemPrompts.find(p => p.id === activePromptId);
+              if (sp && sp.requiresInput === 0) {
+                return (
+                  <div style={{ padding: 14, background: 'rgba(99, 102, 241, 0.08)', border: '1px solid rgba(99, 102, 241, 0.2)', borderRadius: 8, fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                    ✨ <strong>{sp.name}</strong> runs automatically with just the image. No text input needed.
+                    <br />You can still add a hint below if you want:
+                    <textarea
+                      value={instruction}
+                      onChange={(e) => setInstruction(e.target.value)}
+                      rows={2}
+                      placeholder='(optional) additional hint, e.g. "preserve the warm sunset mood"'
+                      style={{ width: '100%', fontSize: '0.85rem', resize: 'vertical' as const, marginTop: 8 }}
+                    />
+                  </div>
+                );
+              }
+              return (
             <textarea
               value={instruction}
               onChange={(e) => setInstruction(e.target.value)}
@@ -210,6 +229,8 @@ export default function AgentStudio() {
               placeholder='e.g. "reiluminar esta foto, pero mantener el ambiente natural. La chica está subexpuesta del lado derecho."'
               style={{ width: '100%', fontSize: '0.9rem', resize: 'vertical' as const }}
             />
+              );
+            })()}
             <button
               type="button"
               onClick={handleEnhance}

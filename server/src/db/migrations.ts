@@ -83,6 +83,7 @@ export function runMigrations(db: any): void {
       category TEXT DEFAULT 'general',
       description TEXT DEFAULT '',
       isBuiltin INTEGER DEFAULT 0,
+      requiresInput INTEGER DEFAULT 1,
       createdAt TEXT NOT NULL,
       updatedAt TEXT NOT NULL
     );
@@ -92,7 +93,6 @@ export function runMigrations(db: any): void {
     -- any stale seq=2 from when user prompts collided with built-ins.
     DELETE FROM sqlite_sequence WHERE name = 'system_prompts';
     INSERT INTO sqlite_sequence (name, seq) VALUES ('system_prompts', 999);
-
     CREATE TABLE IF NOT EXISTS prompt_enhancements (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       originalText TEXT NOT NULL,
@@ -125,6 +125,8 @@ export function runMigrations(db: any): void {
     // 005: Add source upload tracking to gallery_items (for before/after display)
     `ALTER TABLE gallery_items ADD COLUMN sourceUploadUrl TEXT DEFAULT ''`,
     `ALTER TABLE gallery_items ADD COLUMN sourceUploadId INTEGER`,
+    // 007: requiresInput flag for system_prompts
+    `ALTER TABLE system_prompts ADD COLUMN requiresInput INTEGER DEFAULT 1`,
   ];
 
   for (const sql of migrations) {
