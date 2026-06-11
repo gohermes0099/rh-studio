@@ -48,10 +48,30 @@ router.get('/files/:id', async (req, res) => {
       res.status(404).json({ error: 'Gallery item not found' });
       return;
     }
+    const isDownload = req.query.dl === '1';
 
-    // imgbb URL — public redirect
+    // imgbb URL — proxy server-side to avoid CORS issues with browser fetch
     if (info.isImgbbUrl) {
-      res.redirect(302, info.filePath);
+      try {
+        const imgRes = await fetch(info.filePath, { signal: (req as any).signal });
+        if (!imgRes.ok) {
+          res.status(502).json({ error: `Upstream image fetch failed: ${imgRes.status}` });
+          return;
+        }
+        const contentType = imgRes.headers.get('content-type') || info.mimeType || 'image/png';
+        const contentLength = imgRes.headers.get('content-length');
+        res.setHeader('Content-Type', contentType);
+        if (contentLength) res.setHeader('Content-Length', contentLength);
+        res.setHeader('Content-Disposition', isDownload
+          ? `attachment; filename="${info.fileName}"`
+          : 'inline');
+        res.setHeader('Cache-Control', 'private, max-age=3600');
+        const ab = await imgRes.arrayBuffer();
+        res.send(Buffer.from(ab));
+      } catch (e: any) {
+        if (e.name === 'AbortError') return;
+        res.status(502).json({ error: `Failed to proxy image: ${e.message}` });
+      }
       return;
     }
 
@@ -77,7 +97,6 @@ router.get('/files/:id', async (req, res) => {
     res.setHeader('Content-Type', info.mimeType);
     res.setHeader('Cache-Control', 'private, max-age=300');
 
-    const isDownload = req.query.dl === '1';
     if (isDownload) {
       res.setHeader('Content-Disposition', `attachment; filename="${info.fileName}"`);
     }
