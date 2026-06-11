@@ -78,9 +78,15 @@ export default function ImagePickerModal({ open, onClose, onSelect, excludeToolI
   };
 
   const handlePickGallery = (g: GalleryItem) => {
+    // fileName is the RESULT of the previous edit (imgbb URL).
+    // sourceUploadUrl is the BEFORE image (input). We want the result.
     const fileName = g.fileName;
-    const previewUrl = g.sourceUploadUrl || `/api/gallery/files/${g.id}`;
-    const label = g.toolName + (g.prompt ? ` — ${g.prompt.slice(0, 40)}` : '');
+    // For preview, use the result URL directly (imgbb CDN is fast and public).
+    // Fallback to the proxy if fileName is not an http URL (legacy records).
+    const previewUrl = g.fileName?.startsWith('http')
+      ? g.fileName
+      : `/api/gallery/files/${g.id}`;
+    const label = g.toolName + (g.prompt ? ` — ${g.prompt.slice(0, 40)}` : '') + ' (result)';
     onSelect({ fileName, previewUrl, label });
   };
 
@@ -267,7 +273,7 @@ export default function ImagePickerModal({ open, onClose, onSelect, excludeToolI
                   >
                     <div style={{ width: '100%', height: 110, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
                       <img
-                        src={g.sourceUploadUrl || `/api/gallery/files/${g.id}`}
+                        src={g.fileName?.startsWith('http') ? g.fileName : `/api/gallery/files/${g.id}`}
                         alt={g.toolName}
                         style={{ width: '100%', height: '100%', objectFit: 'cover' as const }}
                         loading="lazy"
@@ -275,7 +281,9 @@ export default function ImagePickerModal({ open, onClose, onSelect, excludeToolI
                       />
                     </div>
                     <div style={{ padding: '6px 8px', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                      <div style={{ whiteSpace: 'nowrap' as const, overflow: 'hidden', textOverflow: 'ellipsis', color: 'var(--text)' }}>{g.toolName}</div>
+                      <div style={{ whiteSpace: 'nowrap' as const, overflow: 'hidden', textOverflow: 'ellipsis', color: 'var(--text)' }}>
+                        {g.toolName} <span style={{ color: 'var(--accent-cyan)', fontWeight: 600 }}>· result</span>
+                      </div>
                       {g.prompt && (
                         <div style={{ marginTop: 2, whiteSpace: 'nowrap' as const, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                           {g.prompt.slice(0, 40)}{g.prompt.length > 40 ? '…' : ''}
