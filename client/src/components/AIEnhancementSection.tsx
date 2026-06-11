@@ -355,11 +355,22 @@ export default function AIEnhancementSection() {
                     <button
                       type="button"
                       onClick={async () => {
-                        if (!confirm(`DELETE PERMANENTLY the built-in "${sp.name}"?\n\nThis cannot be undone. The built-in will never reappear, even after a server restart.\n\nContinue?`)) return;
+                        const confirmMsg = 'DELETE PERMANENTLY the built-in "' + sp.name + '"?\n\nThis cannot be undone. The built-in will never reappear, even after a server restart.\n\nContinue?';
+                        console.log('[permanent-delete] clicked for', sp.id, sp.name, '— showing confirm');
+                        if (!confirm(confirmMsg)) {
+                          console.log('[permanent-delete] user cancelled');
+                          return;
+                        }
+                        console.log('[permanent-delete] user confirmed, calling API...');
                         try {
-                          await api.permanentDeleteSystemPrompt(sp.id);
+                          const result = await api.permanentDeleteSystemPrompt(sp.id);
+                          console.log('[permanent-delete] API result:', result);
                           await refresh();
-                        } catch (e: any) { alert('Failed: ' + e.message); }
+                          console.log('[permanent-delete] refresh done');
+                        } catch (e: any) {
+                          console.error('[permanent-delete] error:', e);
+                          alert('Failed: ' + e.message);
+                        }
                       }}
                       className="btn-ghost"
                       style={{ padding: '3px 9px', fontSize: '0.72rem', color: 'var(--error)', fontWeight: 600 }}
