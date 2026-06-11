@@ -88,7 +88,10 @@ export function runMigrations(db: any): void {
     );
     -- User-created system prompts must have id >= 1000 to avoid collision
     -- with built-in templates (id 1..N) that live in code, not the DB.
-    INSERT OR IGNORE INTO sqlite_sequence (name, seq) VALUES ('system_prompts', 999);
+    -- Force seq to 999 so next user insert is id 1000. REPLACE so it overrides
+    -- any stale seq=2 from when user prompts collided with built-ins.
+    DELETE FROM sqlite_sequence WHERE name = 'system_prompts';
+    INSERT INTO sqlite_sequence (name, seq) VALUES ('system_prompts', 999);
 
     CREATE TABLE IF NOT EXISTS prompt_enhancements (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
