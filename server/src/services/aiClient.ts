@@ -2,13 +2,12 @@
 // The factory creates the active provider based on settings.
 
 import * as ollama from './providers/ollama.js';
-import * as groq from './providers/groq.js';
 import * as gemini from './providers/gemini.js';
 import * as minimax from './providers/minimax.js';
 import { getDb } from '../db/connection.js';
 import fs from 'node:fs/promises';
 
-export type ProviderId = 'ollama' | 'groq' | 'gemini' | 'minimax';
+export type ProviderId = 'ollama' | 'gemini' | 'minimax';
 
 export interface ImageRef {
   /** Public URL (http/https) or data URI */
@@ -65,7 +64,6 @@ export interface AIProvider {
 
 const PROVIDERS: Record<ProviderId, AIProvider> = {
   ollama,
-  groq,
   gemini,
   minimax,
 };
