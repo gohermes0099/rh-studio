@@ -289,6 +289,11 @@ export const api = {
   getHiddenBuiltinPrompts: () =>
     request<{ hiddenIds: number[] }>('/enhance/system-prompts/hidden'),
 
+  permanentDeleteSystemPrompt: (id: number) =>
+    request<{ success: boolean }>(`/enhance/system-prompts/${id}/permanent-delete`, {
+      method: 'POST',
+    }),
+
   setActiveSystemPrompt: (id: number | string) =>
     request<{ success: boolean; activeSystemPromptId: string }>('/enhance/config/active-system-prompt', {
       method: 'POST',

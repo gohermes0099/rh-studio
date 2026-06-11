@@ -199,7 +199,9 @@ router.get('/system-prompts', (_req, res) => {
     const db = getDb();
     const userPrompts = db.prepare('SELECT id, name, content, category, description, isBuiltin, requiresInput, createdAt, updatedAt FROM system_prompts ORDER BY updatedAt DESC').all();
     const hiddenRow = db.prepare('SELECT value FROM settings WHERE key = ?').get('hidden_builtins') as { value: string } | undefined;
+    const deletedRow = db.prepare('SELECT value FROM settings WHERE key = ?').get('deleted_builtins') as { value: string } | undefined;
     const hiddenIds: number[] = hiddenRow ? (JSON.parse(hiddenRow.value) as number[]) : [];
+    const deletedIds: number[] = deletedRow ? (JSON.parse(deletedRow.value) as number[]) : [];
     const builtins = BUILTIN_TEMPLATES
       .map((t, i) => ({
         id: i + 1,
@@ -212,7 +214,7 @@ router.get('/system-prompts', (_req, res) => {
         createdAt: '',
         updatedAt: '',
       }))
-      .filter(b => !hiddenIds.includes(b.id));
+      .filter(b => !hiddenIds.includes(b.id) && !deletedIds.includes(b.id));
     res.json({ systemPrompts: [...builtins, ...userPrompts] });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -272,7 +274,7 @@ router.delete('/system-prompts/:id', (req, res) => {
   }
 });
 
-// Restore a hidden built-in
+// Restore a hidden built-in (moves from hidden back to visible)
 router.post('/system-prompts/:id/restore', (req, res) => {
   try {
     const id = Number(req.params.id);
@@ -284,6 +286,40 @@ router.post('/system-prompts/:id/restore', (req, res) => {
     if (idx >= 0) {
       hiddenIds.splice(idx, 1);
       db.run('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', 'hidden_builtins', JSON.stringify(hiddenIds));
+    }
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PERMANENTLY delete a built-in. Removes from both hidden list AND adds to
+// deleted_builtins set. Cannot be undone from the UI. Survives restarts.
+// Only works for built-ins (id < 1000) — user prompts are already permanent.
+router.post('/system-prompts/:id/permanent-delete', (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (id >= 1000) { res.status(400).json({ error: 'User prompts are already permanent — use DELETE' }); return; }
+    const db = getDb();
+    // Remove from hidden list if present
+    const hiddenRow = db.prepare('SELECT value FROM settings WHERE key = ?').get('hidden_builtins') as { value: string } | undefined;
+    const hiddenIds: number[] = hiddenRow ? JSON.parse(hiddenRow.value) : [];
+    const hidIdx = hiddenIds.indexOf(id);
+    if (hidIdx >= 0) {
+      hiddenIds.splice(hidIdx, 1);
+      db.run('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', 'hidden_builtins', JSON.stringify(hiddenIds));
+    }
+    // Add to deleted set
+    const deletedRow = db.prepare('SELECT value FROM settings WHERE key = ?').get('deleted_builtins') as { value: string } | undefined;
+    const deletedIds: number[] = deletedRow ? JSON.parse(deletedRow.value) : [];
+    if (!deletedIds.includes(id)) {
+      deletedIds.push(id);
+      db.run('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', 'deleted_builtins', JSON.stringify(deletedIds));
+    }
+    // If it was the active SP, reset to default
+    const activeRow = db.prepare('SELECT value FROM settings WHERE key = ?').get('ai_active_system_prompt_id') as { value: string } | undefined;
+    if (activeRow && activeRow.value === String(id)) {
+      db.run('DELETE FROM settings WHERE key = ?', 'ai_active_system_prompt_id');
     }
     res.json({ success: true });
   } catch (err: any) {
