@@ -356,3 +356,13 @@ export default function AgentStudio() {
     </div>
   );
 }
+
+function formatEnhanceError(err: any): string {
+  if (!err) return 'Enhancement failed';
+  const transient = (err as any).transient || (err as any).retryable;
+  const base = err.message || 'Enhancement failed';
+  if (transient) {
+    return `⏳ ${base}\n\nThe provider is temporarily overloaded. Wait a few seconds and click Generate again.`;
+  }
+  return base;
+}

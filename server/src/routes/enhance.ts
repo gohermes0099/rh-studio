@@ -432,13 +432,17 @@ router.post('/', async (req, res) => {
       ? `${finalText}\n\n(See attached image${images.length > 1 ? 's' : ''} for context.)`
       : finalText;
 
-    const result: EnhanceResult = await active.provider.enhance({
-      system: fullSystem,
-      user: userMessage,
-      images,
-      jsonMode: true,
-      signal: (req as any).signal,
-    }, active.model, active.apiKey);
+    const result: EnhanceResult = await callProviderWithRetry(
+      () => active.provider.enhance({
+        system: fullSystem,
+        user: userMessage,
+        images,
+        jsonMode: true,
+        signal: (req as any).signal,
+      }, active.model, active.apiKey),
+      active.provider.id,
+      (req as any).signal,
+    );
 
     // Log the enhancement
     const db = getDb();
@@ -472,9 +476,73 @@ router.post('/', async (req, res) => {
     });
   } catch (err: any) {
     console.error('[enhance] Error:', err);
+    // Map transient upstream errors (overloaded, rate limit, server error) to 503
+    // with a friendly message. The client can retry the request.
+    if (isTransientProviderError(err)) {
+      res.status(503).json({
+        error: err.message,
+        transient: true,
+        retryable: true,
+        provider: err.providerId,
+      });
+      return;
+    }
     res.status(500).json({ error: err.message || 'Enhancement failed' });
   }
 });
+
+/**
+ * Returns true if the error from a provider is transient (overloaded, rate-limited,
+ * upstream server error) and worth retrying. Looks for the status code 429, 500, 502,
+ * 503, 529, or keywords like "overloaded" / "rate limit" inside the error message.
+ */
+function isTransientProviderError(err: any): boolean {
+  if (!err || !err.message) return false;
+  const m = String(err.message);
+  return /\b(429|500|502|503|529)\b/.test(m) ||
+         /overloaded|overload_error|rate[_ ]?limit|upstream/i.test(m);
+}
+
+/**
+ * Wraps a provider enhance() call with up to 3 attempts and exponential backoff
+ * (1s, 2s, 4s) for transient errors. Respects the request's abort signal.
+ */
+async function callProviderWithRetry(
+  fn: () => Promise<EnhanceResult>,
+  providerId: string,
+  signal: AbortSignal | undefined,
+): Promise<EnhanceResult> {
+  const maxAttempts = 3;
+  const delays = [1000, 2000, 4000];
+  let lastErr: any;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await fn();
+    } catch (e: any) {
+      lastErr = e;
+      if (!isTransientProviderError(e) || attempt === maxAttempts) {
+        // Attach providerId for the route to surface
+        e.providerId = providerId;
+        throw e;
+      }
+      if (signal?.aborted) {
+        e.providerId = providerId;
+        throw e;
+      }
+      const delay = delays[attempt - 1];
+      console.warn(`[enhance] ${providerId} returned transient error (attempt ${attempt}/${maxAttempts}), retrying in ${delay}ms: ${e.message?.slice(0, 120)}`);
+      await new Promise<void>((resolve) => {
+        const t = setTimeout(resolve, delay);
+        signal?.addEventListener('abort', () => { clearTimeout(t); resolve(); }, { once: true });
+      });
+      if (signal?.aborted) {
+        e.providerId = providerId;
+        throw e;
+      }
+    }
+  }
+  throw lastErr;
+}
 
 /** Get recent enhancement history */
 router.get('/history', (req, res) => {
