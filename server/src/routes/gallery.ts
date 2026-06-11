@@ -62,8 +62,12 @@ router.get('/files/:id', async (req, res) => {
         const contentLength = imgRes.headers.get('content-length');
         res.setHeader('Content-Type', contentType);
         if (contentLength) res.setHeader('Content-Length', contentLength);
+        // Build a clean download filename like "ToolName-12.jpg"
+        const urlPath = (() => { try { return new URL(info.filePath).pathname; } catch { return info.fileName; } })();
+        const ext = (urlPath.match(/\.(\w{2,5})(?:\?|$)/)?.[1] || 'jpg').toLowerCase();
+        const cleanName = `gallery-${galleryId}.${ext}`;
         res.setHeader('Content-Disposition', isDownload
-          ? `attachment; filename="${info.fileName}"`
+          ? `attachment; filename="${cleanName}"`
           : 'inline');
         res.setHeader('Cache-Control', 'private, max-age=3600');
         const ab = await imgRes.arrayBuffer();
