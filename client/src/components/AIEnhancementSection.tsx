@@ -350,8 +350,21 @@ export default function AIEnhancementSection() {
                       onClick={() => deletePrompt(sp.id, sp.name, true)}
                       className="btn-ghost"
                       style={{ padding: '3px 9px', fontSize: '0.72rem', color: 'var(--error)' }}
-                      title="Hide this built-in (you can restore it later from the settings)"
-                    >Delete</button>
+                      title="Hide (soft) — appears in recovery section, can be restored"
+                    >Hide</button>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (!confirm(`DELETE PERMANENTLY the built-in "${sp.name}"?\n\nThis cannot be undone. The built-in will never reappear, even after a server restart.\n\nContinue?`)) return;
+                        try {
+                          await api.permanentDeleteSystemPrompt(sp.id);
+                          await refresh();
+                        } catch (e: any) { alert('Failed: ' + e.message); }
+                      }}
+                      className="btn-ghost"
+                      style={{ padding: '3px 9px', fontSize: '0.72rem', color: 'var(--error)', fontWeight: 600 }}
+                      title="Delete permanently — cannot be undone"
+                    >✕ Delete forever</button>
                   </>
                 )}
               </div>
