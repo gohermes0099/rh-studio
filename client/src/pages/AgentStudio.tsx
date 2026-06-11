@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { api } from '../api/client';
+import ImagePickerModal from '../components/ImagePickerModal';
 
 interface SystemPrompt {
   id: number;
@@ -33,6 +34,8 @@ export default function AgentStudio() {
   const [result, setResult] = useState<EnhanceResult | null>(null);
   const [editedPrompt, setEditedPrompt] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerError, setPickerError] = useState('');
 
   useEffect(() => {
     api.listSystemPrompts().then(r => {
@@ -65,6 +68,39 @@ export default function AgentStudio() {
 
   const removeImage = (idx: number) => {
     setImages(prev => prev.filter((_, i) => i !== idx));
+  };
+
+  /**
+   * Fetch a remote image (imgbb URL or proxy) and convert to base64 so the agent
+   * can pass it to the vision LLM. Returns { url, base64, mimeType }.
+   */
+  const fetchImageAsBase64 = async (url: string): Promise<{ url: string; base64: string; mimeType: string }> => {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`Failed to fetch image: HTTP ${res.status}`);
+    const blob = await res.blob();
+    const mimeType = blob.type || 'image/jpeg';
+    return await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = reader.result as string;
+        const base64 = dataUrl.split(',')[1] || '';
+        resolve({ url: dataUrl, base64, mimeType });
+      };
+      reader.onerror = () => reject(new Error('Failed to read image data'));
+      reader.readAsDataURL(blob);
+    });
+  };
+
+  const handlePickerSelect = async (picked: { fileName: string; previewUrl: string; label: string }) => {
+    setPickerError('');
+    try {
+      const fetched = await fetchImageAsBase64(picked.previewUrl);
+      setImages(prev => [...prev, fetched]);
+    } catch (e: any) {
+      setPickerError(e.message || 'Failed to load selected image');
+    } finally {
+      setPickerOpen(false);
+    }
   };
 
   const handleEnhance = async () => {
@@ -183,6 +219,20 @@ export default function AgentStudio() {
               onChange={(e) => e.target.files && handleAddFiles(e.target.files)}
               style={{ display: 'none' }}
             />
+            <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' as const, alignItems: 'center' }}>
+              <button
+                type="button"
+                className="btn-ghost"
+                onClick={() => setPickerOpen(true)}
+                style={{ padding: '6px 12px', fontSize: '0.85rem' }}
+                title="Pick images from your Uploads or Gallery library"
+              >
+                📁 From Library
+              </button>
+              {pickerError && (
+                <span style={{ fontSize: '0.78rem', color: 'var(--error)' }}>{pickerError}</span>
+              )}
+            </div>
             {images.length > 0 && (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(80px, 1fr))', gap: 6, marginTop: 10 }}>
                 {images.map((img, i) => (
@@ -202,6 +252,11 @@ export default function AgentStudio() {
                 ))}
               </div>
             )}
+            <ImagePickerModal
+              open={pickerOpen}
+              onClose={() => setPickerOpen(false)}
+              onSelect={handlePickerSelect}
+            />
           </div>
 
           <div className="card">
