@@ -46,6 +46,9 @@ export default function UploadGallery() {
   // Tool picker (for "Use with webapp")
   const [toolPickerOpen, setToolPickerOpen] = useState(false);
 
+  // Download
+  const [downloading, setDownloading] = useState(false);
+
   const fetchUploads = () => {
     setLoading(true);
     api.listUploads()
@@ -123,6 +126,40 @@ export default function UploadGallery() {
   // --- Use with webapp ---
   const handleUseWithWebapp = () => {
     setToolPickerOpen(true);
+  };
+
+  // --- Download ---
+  // Same fetch+blob pattern Gallery uses, so the file downloads with a clean
+  // filename, no CORS preflight, no auth header issues, and no redirect to the
+  // imgbb URL (which previously opened in a new tab and left the app).
+  const handleDownload = async (upload: UploadItem) => {
+    if (downloading) return;
+    setDownloading(true);
+    try {
+      const token = localStorage.getItem('auth_token');
+      const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+      // Always go through the server proxy. The server handles auth, the
+      // imgbb redirect, and sets a clean Content-Disposition filename.
+      const url = `/api/uploads/${upload.id}/file?dl=1`;
+      const res = await fetch(url, { headers });
+      if (!res.ok) throw new Error(`Download failed: HTTP ${res.status}`);
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      // Use the original upload filename when possible; fall back to a safe default.
+      const safeName = upload.originalName || `upload-${upload.id}`;
+      a.download = safeName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+    } catch (e: any) {
+      console.error('Download failed:', e);
+      alert('Download failed: ' + e.message);
+    } finally {
+      setDownloading(false);
+    }
   };
 
   const handleToolSelected = async (toolId: number) => {
@@ -406,13 +443,25 @@ export default function UploadGallery() {
                   Use with webapp
                 </button>
                 <a
-                  href={selectedUpload.imgbbUrl || `/api/uploads/${selectedUpload.id}/file?dl=1`}
-                  download={selectedUpload.originalName}
-                  className="btn-primary"
+                  href={selectedUpload.imgbbUrl || `/api/uploads/${selectedUpload.id}/file`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn-ghost"
                   style={{ display: 'inline-block', padding: '8px 16px', textDecoration: 'none' }}
+                  title="Open the original at imgbb in a new tab"
                 >
-                  Download
+                  View
                 </a>
+                <button
+                  type="button"
+                  onClick={() => handleDownload(selectedUpload)}
+                  disabled={downloading}
+                  className="btn-primary"
+                  style={{ padding: '8px 16px' }}
+                  title="Download to your computer (uses server proxy for clean filename)"
+                >
+                  {downloading ? 'Downloading…' : 'Download'}
+                </button>
                 <button
                   onClick={() => { setDeleteConfirm(selectedUpload.id); setSelectedUpload(null); }}
                   className="btn-danger"

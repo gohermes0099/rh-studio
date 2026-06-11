@@ -39,7 +39,38 @@ router.get('/:id/file', async (req, res) => {
     }
 
     if (upload.imgbbUrl && (upload.imgbbUrl as string).startsWith('http')) {
-      res.redirect(302, upload.imgbbUrl as string);
+      const isDownload = req.query.dl === '1';
+      const imgbbUrl = upload.imgbbUrl as string;
+
+      if (isDownload) {
+        // For downloads, proxy imgbb server-side so we can set a clean
+        // Content-Disposition filename. Otherwise the browser would follow
+        // a 302 to the imgbb URL and either render the image inline or open
+        // it in a new tab, depending on Content-Disposition at the CDN.
+        try {
+          const imgRes = await fetch(imgbbUrl, { signal: (req as any).signal });
+          if (!imgRes.ok) {
+            res.status(502).json({ error: `Upstream image fetch failed: ${imgRes.status}` });
+            return;
+          }
+          const contentType = imgRes.headers.get('content-type') || (upload.mimeType as string) || 'application/octet-stream';
+          const contentLength = imgRes.headers.get('content-length');
+          res.setHeader('Content-Type', contentType);
+          if (contentLength) res.setHeader('Content-Length', contentLength);
+          res.setHeader('Content-Disposition', `attachment; filename="${upload.originalName}"`);
+          res.setHeader('Cache-Control', 'private, max-age=3600');
+          const ab = await imgRes.arrayBuffer();
+          res.send(Buffer.from(ab));
+        } catch (e: any) {
+          if (e.name === 'AbortError') return;
+          res.status(502).json({ error: `Failed to proxy image: ${e.message}` });
+        }
+        return;
+      }
+
+      // For inline viewing, redirect to the imgbb URL — it's a public CDN and
+      // the redirect is faster than proxying the bytes.
+      res.redirect(302, imgbbUrl);
       return;
     }
 
