@@ -86,6 +86,9 @@ export function runMigrations(db: any): void {
       createdAt TEXT NOT NULL,
       updatedAt TEXT NOT NULL
     );
+    -- User-created system prompts must have id >= 1000 to avoid collision
+    -- with built-in templates (id 1..N) that live in code, not the DB.
+    INSERT OR IGNORE INTO sqlite_sequence (name, seq) VALUES ('system_prompts', 999);
 
     CREATE TABLE IF NOT EXISTS prompt_enhancements (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
