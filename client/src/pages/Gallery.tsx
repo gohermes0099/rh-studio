@@ -112,8 +112,10 @@ export default function Gallery() {
     try {
       const token = localStorage.getItem('auth_token');
       const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
-      // For imgbb URLs we can fetch directly. For local files, use the API endpoint.
-      const url = item.fileName.startsWith('http') ? item.fileName : `/api/gallery/files/${item.id}?dl=1`;
+      // ALWAYS go through the server proxy. It fetches imgbb (or local) server-side
+      // and returns the bytes with proper Content-Disposition. This avoids CORS,
+      // works for auth-protected local files, and gives a clean filename.
+      const url = `/api/gallery/files/${item.id}?dl=1`;
       const res = await fetch(url, { headers });
       if (!res.ok) throw new Error(`Download failed: ${res.status}`);
       const blob = await res.blob();
