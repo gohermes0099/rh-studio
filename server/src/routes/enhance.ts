@@ -198,17 +198,21 @@ router.get('/system-prompts', (_req, res) => {
   try {
     const db = getDb();
     const userPrompts = db.prepare('SELECT id, name, content, category, description, isBuiltin, requiresInput, createdAt, updatedAt FROM system_prompts ORDER BY updatedAt DESC').all();
-    const builtins = BUILTIN_TEMPLATES.map((t, i) => ({
-      id: i + 1,  // 1..N
-      name: t.name,
-      content: t.content,
-      category: t.category,
-      description: t.description,
-      isBuiltin: 1,
-      requiresInput: 1,
-      createdAt: '',
-      updatedAt: '',
-    }));
+    const hiddenRow = db.prepare('SELECT value FROM settings WHERE key = ?').get('hidden_builtins') as { value: string } | undefined;
+    const hiddenIds: number[] = hiddenRow ? (JSON.parse(hiddenRow.value) as number[]) : [];
+    const builtins = BUILTIN_TEMPLATES
+      .map((t, i) => ({
+        id: i + 1,
+        name: t.name,
+        content: t.content,
+        category: t.category,
+        description: t.description,
+        isBuiltin: 1,
+        requiresInput: 1,
+        createdAt: '',
+        updatedAt: '',
+      }))
+      .filter(b => !hiddenIds.includes(b.id));
     res.json({ systemPrompts: [...builtins, ...userPrompts] });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -251,10 +255,49 @@ router.put('/system-prompts/:id', (req, res) => {
 router.delete('/system-prompts/:id', (req, res) => {
   try {
     const id = Number(req.params.id);
-    if (id < 1000) { res.status(400).json({ error: 'Cannot delete built-in system prompts' }); return; }
     const db = getDb();
-    db.run('DELETE FROM system_prompts WHERE id = ?', id);
+    if (id < 1000) {
+      // Built-in: hide it (add to hidden_builtins list)
+      const hiddenRow = db.prepare('SELECT value FROM settings WHERE key = ?').get('hidden_builtins') as { value: string } | undefined;
+      const hiddenIds: number[] = hiddenRow ? JSON.parse(hiddenRow.value) : [];
+      if (!hiddenIds.includes(id)) hiddenIds.push(id);
+      db.run('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', 'hidden_builtins', JSON.stringify(hiddenIds));
+    } else {
+      // User prompt: hard delete
+      db.run('DELETE FROM system_prompts WHERE id = ?', id);
+    }
     res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Restore a hidden built-in
+router.post('/system-prompts/:id/restore', (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (id >= 1000) { res.status(400).json({ error: 'Only built-ins can be restored' }); return; }
+    const db = getDb();
+    const hiddenRow = db.prepare('SELECT value FROM settings WHERE key = ?').get('hidden_builtins') as { value: string } | undefined;
+    const hiddenIds: number[] = hiddenRow ? JSON.parse(hiddenRow.value) : [];
+    const idx = hiddenIds.indexOf(id);
+    if (idx >= 0) {
+      hiddenIds.splice(idx, 1);
+      db.run('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', 'hidden_builtins', JSON.stringify(hiddenIds));
+    }
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// List which built-ins are currently hidden (so the UI can show 'Restore' buttons)
+router.get('/system-prompts/hidden', (_req, res) => {
+  try {
+    const db = getDb();
+    const hiddenRow = db.prepare('SELECT value FROM settings WHERE key = ?').get('hidden_builtins') as { value: string } | undefined;
+    const hiddenIds: number[] = hiddenRow ? JSON.parse(hiddenRow.value) : [];
+    res.json({ hiddenIds });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

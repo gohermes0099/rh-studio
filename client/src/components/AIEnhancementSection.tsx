@@ -35,6 +35,7 @@ export default function AIEnhancementSection() {
   const [savingModel, setSavingModel] = useState<Record<string, boolean>>({});
   const [activePromptId, setActivePromptId] = useState<string>('1');
   const [editingPrompt, setEditingPrompt] = useState<SystemPrompt | null>(null);
+  const [hiddenIds, setHiddenIds] = useState<number[]>([]);
   const [newPrompt, setNewPrompt] = useState<{ name: string; content: string; category: string; description: string } | null>(null);
 
   useEffect(() => {
@@ -43,10 +44,11 @@ export default function AIEnhancementSection() {
 
   async function refresh() {
     try {
-      const [cfg, prompts] = await Promise.all([api.getAIConfig(), api.listSystemPrompts()]);
+      const [cfg, prompts, hidden] = await Promise.all([api.getAIConfig(), api.listSystemPrompts(), api.getHiddenBuiltinPrompts()]);
       setConfig(cfg);
       setActivePromptId(cfg.activeSystemPromptId);
       setSystemPrompts(prompts.systemPrompts);
+      setHiddenIds(hidden.hiddenIds || []);
     } catch (e) {
       console.error(e);
     }
@@ -136,8 +138,11 @@ export default function AIEnhancementSection() {
     }
   }
 
-  async function deletePrompt(id: number) {
-    if (!confirm('Delete this system prompt?')) return;
+  async function deletePrompt(id: number, name?: string, isBuiltin = false) {
+    const msg = isBuiltin
+      ? `Hide the built-in system prompt "${name || ''}"?\n\nYou can restore it later from this settings panel (a "Show hidden" button will appear once you hide it).`
+      : 'Delete this system prompt?';
+    if (!confirm(msg)) return;
     try {
       await api.deleteSystemPrompt(id);
       await refresh();
@@ -332,13 +337,22 @@ export default function AIEnhancementSection() {
                   </>
                 )}
                 {sp.isBuiltin === 1 && (
-                  <button
-                    type="button"
-                    onClick={() => setEditingPrompt({ ...sp, name: sp.name + ' (copy)' })}
-                    className="btn-ghost"
-                    style={{ padding: '3px 9px', fontSize: '0.72rem' }}
-                    title="Create editable copy"
-                  >Duplicate</button>
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setEditingPrompt({ ...sp, name: sp.name + ' (copy)' })}
+                      className="btn-ghost"
+                      style={{ padding: '3px 9px', fontSize: '0.72rem' }}
+                      title="Create editable copy"
+                    >Duplicate</button>
+                    <button
+                      type="button"
+                      onClick={() => deletePrompt(sp.id, sp.name, true)}
+                      className="btn-ghost"
+                      style={{ padding: '3px 9px', fontSize: '0.72rem', color: 'var(--error)' }}
+                      title="Hide this built-in (you can restore it later from the settings)"
+                    >Delete</button>
+                  </>
                 )}
               </div>
             </div>
@@ -363,6 +377,32 @@ export default function AIEnhancementSection() {
           }}
         >+ New system prompt</button>
       </div>
+
+      {/* Hidden built-ins — shown only if there are any */}
+      {hiddenIds.length > 0 && (
+        <div style={{ marginTop: 16, padding: 12, background: 'rgba(245, 158, 11, 0.05)', border: '1px solid rgba(245, 158, 11, 0.2)', borderRadius: 8 }}>
+          <div style={{ fontSize: '0.8rem', color: 'var(--warning)', fontWeight: 600, marginBottom: 8 }}>
+            ⚠ Hidden built-in system prompts ({hiddenIds.length}):
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' as const }}>
+            {hiddenIds.map(id => (
+              <button
+                key={id}
+                type="button"
+                onClick={async () => {
+                  try {
+                    await api.restoreSystemPrompt(id);
+                    await refresh();
+                  } catch (e: any) { alert('Failed: ' + e.message); }
+                }}
+                className="btn-ghost"
+                style={{ padding: '4px 10px', fontSize: '0.78rem' }}
+                title="Restore this built-in to the list"
+              >↺ Restore ID {id}</button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Edit modal */}
       {editingPrompt && (
