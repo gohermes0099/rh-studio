@@ -18,9 +18,12 @@ interface FieldProps {
   toolName?: string;
   imageUrls?: string[];
   onSaveEnhancedToLibrary?: (result: EnhanceResult) => void;
+  // When false, the active system prompt is image-only — the Enhance button works
+  // with empty text and clears the field right before the API call.
+  requiresInput?: boolean;
 }
 
-function TextField({ field, value, onChange, toolId, toolName, imageUrls, onSaveEnhancedToLibrary }: FieldProps) {
+function TextField({ field, value, onChange, toolId, toolName, imageUrls, onSaveEnhancedToLibrary, requiresInput }: FieldProps) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [enhanceResult, setEnhanceResult] = useState<EnhanceResult | null>(null);
   const [prevValue, setPrevValue] = useState(value);
@@ -89,6 +92,8 @@ function TextField({ field, value, onChange, toolId, toolName, imageUrls, onSave
             toolId={toolId}
             toolName={toolName}
             imageUrls={imageUrls}
+            requiresInput={requiresInput}
+            onBeforeEnhance={requiresInput === false ? () => { onChange(''); setPrevValue(''); } : undefined}
             onResult={(r) => { setEnhanceResult(r); setPrevValue(value); setEnhanceError(''); }}
             onError={setEnhanceError}
           />
@@ -443,6 +448,8 @@ interface DynamicFieldProps {
   toolName?: string;
   imageUrls?: string[];
   onSaveEnhancedToLibrary?: (result: import('./EnhanceButton').EnhanceResult) => void;
+  // Image-only system prompt flag — see FieldProps
+  requiresInput?: boolean;
 }
 
 export default function DynamicField(props: DynamicFieldProps) {

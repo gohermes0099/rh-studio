@@ -54,6 +54,8 @@ export default function ToolRunner() {
   const [quantity, setQuantity] = useState(1);
   // Track which fields the user has explicitly changed
   const [touchedFields, setTouchedFields] = useState<Set<string>>(new Set());
+  // Whether the currently active system prompt needs text (true) or is image-only (false)
+  const [activeSPRequiresInput, setActiveSPRequiresInput] = useState<boolean>(true);
 
   useEffect(() => {
     if (!id) return;
@@ -87,6 +89,15 @@ export default function ToolRunner() {
         setTouchedFields(touched);
 
         setValues(initial);
+      })
+      .then(() => {
+        // Fetch the active system prompt so we can tell DynamicField whether the
+        // current SP is text-required (default) or image-only.
+        return Promise.all([api.getAIConfig(), api.listSystemPrompts()]);
+      })
+      .then(([cfg, prompts]) => {
+        const sp = (prompts.systemPrompts as any[]).find(p => String(p.id) === String(cfg.activeSystemPromptId));
+        setActiveSPRequiresInput(sp ? sp.requiresInput !== 0 : true);
       })
       .catch(() => setError('Tool not found'))
       .finally(() => setLoading(false));
@@ -241,6 +252,7 @@ export default function ToolRunner() {
                 toolId={tool?.id}
                 toolName={tool?.webappName}
                 imageUrls={imageUrls}
+                requiresInput={activeSPRequiresInput}
                 onSaveEnhancedToLibrary={handleSaveEnhancedToLibrary}
                 onChange={(v) => {
                   const key = fieldKey(field);

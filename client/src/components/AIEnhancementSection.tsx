@@ -36,7 +36,7 @@ export default function AIEnhancementSection() {
   const [activePromptId, setActivePromptId] = useState<string>('1');
   const [editingPrompt, setEditingPrompt] = useState<SystemPrompt | null>(null);
   const [hiddenIds, setHiddenIds] = useState<number[]>([]);
-  const [newPrompt, setNewPrompt] = useState<{ name: string; content: string; category: string; description: string } | null>(null);
+  const [newPrompt, setNewPrompt] = useState<{ name: string; content: string; category: string; description: string; requiresInput: number } | null>(null);
 
   useEffect(() => {
     refresh();
@@ -130,6 +130,7 @@ export default function AIEnhancementSection() {
         content: editingPrompt.content,
         category: editingPrompt.category,
         description: editingPrompt.description,
+        requiresInput: editingPrompt.requiresInput !== 0,
       });
       setEditingPrompt(null);
       await refresh();
@@ -158,7 +159,13 @@ export default function AIEnhancementSection() {
       return;
     }
     try {
-      await api.createSystemPrompt(newPrompt);
+      await api.createSystemPrompt({
+        name: newPrompt.name,
+        content: newPrompt.content,
+        category: newPrompt.category,
+        description: newPrompt.description,
+        requiresInput: newPrompt.requiresInput !== 0,
+      });
       setNewPrompt(null);
       await refresh();
     } catch (e: any) {
@@ -303,9 +310,17 @@ export default function AIEnhancementSection() {
               background: isActive ? 'rgba(99, 102, 241, 0.1)' : 'rgba(0, 0, 0, 0.2)',
               border: isActive ? '1px solid rgba(99, 102, 241, 0.4)' : '1px solid rgba(99, 102, 241, 0.1)',
             }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: 4 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: 4, gap: 6 }}>
                 <strong style={{ fontSize: '0.88rem' }}>{sp.name}</strong>
-                {sp.isBuiltin === 1 && <span style={{ fontSize: '0.65rem', color: 'var(--accent-cyan)', textTransform: 'uppercase' as const, letterSpacing: '0.05em' }}>Built-in</span>}
+                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' as const, alignItems: 'center' }}>
+                  {sp.requiresInput === 0 && (
+                    <span
+                      title="This system prompt runs from the image alone — no user instruction needed. The Generate button works with empty text."
+                      style={{ fontSize: '0.62rem', color: 'var(--accent-cyan)', background: 'rgba(99,102,241,0.15)', padding: '1px 6px', borderRadius: 8, fontWeight: 600, whiteSpace: 'nowrap' as const }}
+                    >📷 Image-only</span>
+                  )}
+                  {sp.isBuiltin === 1 && <span style={{ fontSize: '0.65rem', color: 'var(--accent-cyan)', textTransform: 'uppercase' as const, letterSpacing: '0.05em' }}>Built-in</span>}
+                </div>
               </div>
               <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: 8, lineHeight: 1.4 }}>
                 {sp.description || sp.category}
@@ -380,7 +395,7 @@ export default function AIEnhancementSection() {
 
         <button
           type="button"
-          onClick={() => setNewPrompt({ name: '', content: '', category: 'general', description: '' })}
+          onClick={() => setNewPrompt({ name: '', content: '', category: 'general', description: '', requiresInput: 1 })}
           className="btn-ghost"
           style={{
             padding: 12,
@@ -436,8 +451,8 @@ export default function AIEnhancementSection() {
       {newPrompt && (
         <PromptEditor
           title="New system prompt"
-          prompt={{ ...newPrompt, id: 0, isBuiltin: 0 } as any}
-          onChange={(p) => setNewPrompt({ name: p.name, content: p.content, category: p.category, description: p.description })}
+          prompt={{ ...newPrompt, id: 0, isBuiltin: 0, requiresInput: newPrompt.requiresInput } as any}
+          onChange={(p) => setNewPrompt({ name: p.name, content: p.content, category: p.category, description: p.description, requiresInput: p.requiresInput ?? 1 })}
           onSave={createNewPrompt}
           onCancel={() => setNewPrompt(null)}
         />
@@ -485,6 +500,24 @@ function PromptEditor({ title, prompt, onChange, onSave, onCancel }: {
           placeholder="System prompt content…"
           style={{ width: '100%', fontFamily: 'monospace', fontSize: '0.85rem', resize: 'vertical' as const }}
         />
+        <label
+          title="When ON, the user must type an instruction in the Enhance box. When OFF (image-only), the system prompt runs from the attached image alone and the Generate button works with empty text."
+          style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', background: prompt.requiresInput === 0 ? 'rgba(99,102,241,0.08)' : 'transparent', border: '1px solid ' + (prompt.requiresInput === 0 ? 'rgba(99,102,241,0.3)' : 'var(--border, rgba(99,102,241,0.12))'), borderRadius: 6, fontSize: '0.85rem', cursor: 'pointer' }}
+        >
+          <input
+            type="checkbox"
+            checked={prompt.requiresInput !== 0}
+            onChange={(e) => onChange({ ...prompt, requiresInput: e.target.checked ? 1 : 0 })}
+          />
+          <span>
+            <strong>Requires user instructions</strong>
+            <span style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 2 }}>
+              {prompt.requiresInput === 0
+                ? '📷 Image-only mode — the agent runs from the image alone, no text needed.'
+                : 'Default — the user must type an instruction to generate.'}
+            </span>
+          </span>
+        </label>
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
           <button type="button" onClick={onCancel} className="btn-ghost" style={{ padding: '8px 14px', fontSize: '0.85rem' }}>Cancel</button>
           <button type="button" onClick={onSave} className="btn-primary" style={{ padding: '8px 14px', fontSize: '0.85rem' }}>Save</button>

@@ -68,7 +68,9 @@ export default function AgentStudio() {
   };
 
   const handleEnhance = async () => {
-    if (!instruction.trim()) {
+    const activeSP = systemPrompts.find(p => p.id === activePromptId);
+    const requiresText = activeSP?.requiresInput !== 0;
+    if (requiresText && !instruction.trim()) {
       setError('Type an instruction first');
       return;
     }
@@ -231,15 +233,28 @@ export default function AgentStudio() {
             />
               );
             })()}
-            <button
-              type="button"
-              onClick={handleEnhance}
-              disabled={enhancing || !instruction.trim()}
-              className="btn-primary"
-              style={{ marginTop: 12, width: '100%', padding: 10, fontSize: '0.9rem' }}
-            >
-              {enhancing ? '✨ Enhancing…' : '✨ Enhance with AI'}
-            </button>
+            {(() => {
+              const sp = systemPrompts.find(p => p.id === activePromptId);
+              const requiresText = sp?.requiresInput !== 0;
+              const canSubmit = !enhancing && (requiresText ? !!instruction.trim() : true);
+              const label = enhancing
+                ? (requiresText ? '✨ Enhancing…' : '✨ Generating…')
+                : (requiresText ? '✨ Enhance with AI' : '✨ Generate from image');
+              return (
+                <button
+                  type="button"
+                  onClick={handleEnhance}
+                  disabled={!canSubmit}
+                  className="btn-primary"
+                  style={{ marginTop: 12, width: '100%', padding: 10, fontSize: '0.9rem' }}
+                  title={requiresText
+                    ? 'Enhance your instruction into a structured, optimized prompt'
+                    : 'Active system prompt is image-only — runs automatically with just the attached image'}
+                >
+                  {label}
+                </button>
+              );
+            })()}
             {error && <div role="alert" style={{ marginTop: 8, color: 'var(--error)', fontSize: '0.85rem' }}>{error}</div>}
           </div>
         </div>

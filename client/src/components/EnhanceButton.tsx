@@ -24,14 +24,22 @@ interface EnhanceButtonProps {
   onResult: (result: EnhanceResult) => void;
   onError?: (msg: string) => void;
   disabled?: boolean;
+  // When false, the active system prompt is image-only — button works with empty text
+  // and the field's text is ignored. The image alone drives the agent.
+  requiresInput?: boolean;
+  // Optional callback fired just before the API call (e.g. to clear the field).
+  onBeforeEnhance?: () => void;
 }
 
-export default function EnhanceButton({ text, fieldName, toolId, toolName, imageUrls, onResult, onError, disabled }: EnhanceButtonProps) {
+export default function EnhanceButton({ text, fieldName, toolId, toolName, imageUrls, onResult, onError, disabled, requiresInput = true, onBeforeEnhance }: EnhanceButtonProps) {
   const [state, setState] = useState<EnhanceState>('idle');
   const [error, setError] = useState('');
 
+  const isImageOnly = requiresInput === false;
+  const isReady = isImageOnly || !!text.trim();
+
   const handleClick = async () => {
-    if (!text.trim()) {
+    if (!isReady) {
       setError('Type something first');
       setState('error');
       setTimeout(() => { setError(''); setState('idle'); }, 2000);
@@ -39,9 +47,11 @@ export default function EnhanceButton({ text, fieldName, toolId, toolName, image
     }
     setState('enhancing');
     setError('');
+    // Let parent reset its field state (e.g. clear the textarea) right before the API call
+    onBeforeEnhance?.();
     try {
       const result = await api.enhancePrompt({
-        text: text.trim(),
+        text: text.trim() || '',  // empty is OK for image-only SPs
         fieldName,
         toolId,
         toolName,
@@ -58,13 +68,21 @@ export default function EnhanceButton({ text, fieldName, toolId, toolName, image
     }
   };
 
+  const title = state === 'enhancing'
+    ? 'Enhancing…'
+    : state === 'error'
+      ? error
+      : isImageOnly
+        ? 'Generate prompt from image (active system prompt is image-only — text input will be ignored)'
+        : 'Enhance prompt with AI';
+
   return (
     <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
       <button
         type="button"
         onClick={handleClick}
-        disabled={disabled || state === 'enhancing' || !text.trim()}
-        title={state === 'enhancing' ? 'Enhancing…' : state === 'error' ? error : 'Enhance prompt with AI'}
+        disabled={disabled || state === 'enhancing' || !isReady}
+        title={title}
         style={{
           background: state === 'error' ? 'rgba(239, 68, 68, 0.15)' : 'rgba(99, 102, 241, 0.15)',
           border: `1px solid ${state === 'error' ? 'rgba(239, 68, 68, 0.4)' : 'rgba(99, 102, 241, 0.35)'}`,
@@ -77,20 +95,20 @@ export default function EnhanceButton({ text, fieldName, toolId, toolName, image
           alignItems: 'center',
           gap: 4,
           fontWeight: 500,
-          opacity: !text.trim() ? 0.5 : 1,
+          opacity: !isReady ? 0.5 : 1,
         }}
       >
         {state === 'enhancing' ? (
           <>
             <span style={{ animation: 'pulse 1.2s ease-in-out infinite', display: 'inline-block' }}>✨</span>
-            Enhancing…
+            {isImageOnly ? 'Generating…' : 'Enhancing…'}
           </>
         ) : state === 'error' ? (
           <>⚠ Failed</>
         ) : state === 'done' ? (
-          <>✓ Enhanced</>
+          <>✓ {isImageOnly ? 'Generated' : 'Enhanced'}</>
         ) : (
-          <>✨ Enhance</>
+          <>{isImageOnly ? '✨ Generate' : '✨ Enhance'}</>
         )}
       </button>
     </div>
