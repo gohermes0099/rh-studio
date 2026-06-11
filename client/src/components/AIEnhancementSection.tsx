@@ -355,18 +355,13 @@ export default function AIEnhancementSection() {
                     <button
                       type="button"
                       onClick={async () => {
-                        const confirmMsg = 'DELETE PERMANENTLY the built-in "' + sp.name + '"?\n\nThis cannot be undone. The built-in will never reappear, even after a server restart.\n\nContinue?';
-                        console.log('[permanent-delete] clicked for', sp.id, sp.name, '— showing confirm');
-                        if (!confirm(confirmMsg)) {
-                          console.log('[permanent-delete] user cancelled');
-                          return;
-                        }
-                        console.log('[permanent-delete] user confirmed, calling API...');
+                        // '✕ Delete forever' button - direct delete, no confirm
+                        // (button label is already explicit; 'Hide' is the safe option)
+                        console.log('[permanent-delete] deleting', sp.id, sp.name);
                         try {
                           const result = await api.permanentDeleteSystemPrompt(sp.id);
-                          console.log('[permanent-delete] API result:', result);
+                          console.log('[permanent-delete] done:', result);
                           await refresh();
-                          console.log('[permanent-delete] refresh done');
                         } catch (e: any) {
                           console.error('[permanent-delete] error:', e);
                           alert('Failed: ' + e.message);
