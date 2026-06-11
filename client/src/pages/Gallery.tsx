@@ -105,6 +105,36 @@ export default function Gallery() {
     setViewMode('after');
   }, [selectedImage?.id]);
 
+  const [downloading, setDownloading] = useState(false);
+  const handleDownload = async (item: GalleryItem) => {
+    if (downloading) return;
+    setDownloading(true);
+    try {
+      const token = localStorage.getItem('auth_token');
+      const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+      // For imgbb URLs we can fetch directly. For local files, use the API endpoint.
+      const url = item.fileName.startsWith('http') ? item.fileName : `/api/gallery/files/${item.id}?dl=1`;
+      const res = await fetch(url, { headers });
+      if (!res.ok) throw new Error(`Download failed: ${res.status}`);
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const ext = (item.fileName.match(/\.(\w+)(?:\?|$)/)?.[1] || 'png').toLowerCase();
+      const safeName = `${item.toolName.replace(/[^a-zA-Z0-9-_]/g, '_')}-${item.id}.${ext}`;
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = safeName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+    } catch (e: any) {
+      console.error('Download failed:', e);
+      alert('Download failed: ' + e.message);
+    } finally {
+      setDownloading(false);
+    }
+  };
+
   const handleDelete = async () => {
     if (deleteConfirm === null) return;
     try {
@@ -472,14 +502,15 @@ export default function Gallery() {
                   >
                     Edit
                   </button>
-                  <a
-                    href={`/api/gallery/files/${selectedImage.id}?dl=1`}
-                    download={`${selectedImage.toolName}-result`}
+                  <button
+                    type="button"
+                    onClick={() => handleDownload(selectedImage)}
                     className="btn-primary"
-                    style={{ display: 'inline-block', padding: '8px 12px', textDecoration: 'none', textAlign: 'center' as const, fontSize: '0.82rem', flex: '0 0 auto' }}
+                    style={{ padding: '8px 12px', fontSize: '0.82rem', flex: '0 0 auto' }}
+                    title="Download to your computer"
                   >
-                    Download
-                  </a>
+                    {downloading ? 'Downloading…' : 'Download'}
+                  </button>
                 </div>
               </div>
             </div>
