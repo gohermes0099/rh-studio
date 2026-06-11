@@ -4,6 +4,7 @@ import ImageCropModal from './ImageCropModal';
 import PromptPickerModal from './PromptPickerModal';
 import EnhanceButton, { type EnhanceResult } from './EnhanceButton';
 import EnhancePreview from './EnhancePreview';
+import ImagePickerModal from './ImagePickerModal';
 import { api } from '../api/client';
 
 interface FieldProps {
@@ -206,6 +207,8 @@ function ImageField({ field, value, onChange, onUpload, previewUrl }: FieldProps
   const [preview, setPreview] = useState('');
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState('');
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickedLabel, setPickedLabel] = useState('');
 
   // When a previewUrl is provided (e.g. from uploads gallery pick), show it
   useEffect(() => {
@@ -256,9 +259,18 @@ function ImageField({ field, value, onChange, onUpload, previewUrl }: FieldProps
     setCropImageUrl('');
   };
 
+  const handlePickerSelect = (picked: { fileName: string; previewUrl: string; label: string }) => {
+    // fileName is the URL that RunningHub accepts (imgbb or proxy).
+    // previewUrl is what we render locally.
+    onChange(picked.fileName);
+    setPreview(picked.previewUrl);
+    setPickedLabel(picked.label);
+    setPickerOpen(false);
+  };
+
   return (
     <div>
-      <div style={{ display: 'flex', gap: 8 }}>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' as const }}>
         <input
           type="file"
           ref={fileRef}
@@ -269,6 +281,27 @@ function ImageField({ field, value, onChange, onUpload, previewUrl }: FieldProps
         <button type="button" className="btn-primary" onClick={() => fileRef.current?.click()} disabled={uploading}>
           {uploading ? 'Uploading...' : 'Choose Image'}
         </button>
+        <button
+          type="button"
+          className="btn-ghost"
+          onClick={() => setPickerOpen(true)}
+          disabled={uploading}
+          title="Pick an image from your Uploads or Gallery library"
+          style={{ padding: '8px 12px', fontSize: '0.85rem' }}
+        >
+          📁 From Library
+        </button>
+        {value && (
+          <button
+            type="button"
+            className="btn-ghost"
+            onClick={() => { onChange(''); setPreview(''); setPickedLabel(''); }}
+            title="Clear this field"
+            style={{ padding: '8px 12px', fontSize: '0.85rem', color: 'var(--text-muted)' }}
+          >
+            ✕ Clear
+          </button>
+        )}
       </div>
       {uploadError && <div style={{ color: 'var(--error)', fontSize: '0.8rem', marginTop: 4 }}>{uploadError}</div>}
       {preview && (
@@ -277,6 +310,11 @@ function ImageField({ field, value, onChange, onUpload, previewUrl }: FieldProps
           alt="Preview"
           style={{ maxWidth: 200, maxHeight: 200, marginTop: 8, borderRadius: 'var(--radius)' }}
         />
+      )}
+      {pickedLabel && preview && (
+        <div style={{ marginTop: 4, fontSize: '0.75rem', color: 'var(--text-dim)' }}>
+          From: {pickedLabel}
+        </div>
       )}
       {value && !preview && <span style={{ marginLeft: 8, fontSize: '0.8rem', color: 'var(--text-muted)' }}>{value}</span>}
 
@@ -289,6 +327,11 @@ function ImageField({ field, value, onChange, onUpload, previewUrl }: FieldProps
           onCancel={handleCropCancel}
         />
       )}
+      <ImagePickerModal
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        onSelect={handlePickerSelect}
+      />
     </div>
   );
 }
