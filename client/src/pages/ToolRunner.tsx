@@ -28,11 +28,33 @@ export default function ToolRunner() {
   const [statusMsg, setStatusMsg] = useState('');
   const [prefillFieldKey, setPrefillFieldKey] = useState<string | null>(null);
 
-  // Collect image URLs that have been uploaded (for AI enhance context)
+  // Collect image URLs that have been uploaded (for AI enhance context).
+  // The agent needs to SEE the images that will be used to generate the output,
+  // so we include:
+  //   1. The prefill image (when the user navigated here from /uploads or /gallery)
+  //   2. The current value of every IMAGE field in the form (whether pre-filled,
+  //      uploaded via Choose Image, or picked via From Library)
+  // We dedupe so the same URL is only sent once.
   const imageUrls: string[] = [];
-  if (locationState?.prefillImage?.previewUrl) imageUrls.push(locationState.prefillImage.previewUrl);
-  if (locationState?.prefillImage?.fileName && locationState.prefillImage.fileName.startsWith('http')) {
-    imageUrls.push(locationState.prefillImage.fileName);
+  const seen = new Set<string>();
+  const pushIfNew = (url: string | undefined | null) => {
+    if (!url || seen.has(url)) return;
+    // Accept any URL the server can resolve: http(s), data:, or our own proxy paths.
+    if (url.startsWith('http') || url.startsWith('data:') || url.startsWith('/api/')) {
+      seen.add(url);
+      imageUrls.push(url);
+    }
+  };
+  // 1. Prefill image
+  pushIfNew(locationState?.prefillImage?.previewUrl);
+  if (locationState?.prefillImage?.fileName?.startsWith('http')) {
+    pushIfNew(locationState.prefillImage.fileName);
+  }
+  // 2. Every IMAGE field's current value
+  for (const f of fields) {
+    if (f.fieldType !== 'IMAGE') continue;
+    const v = values[fieldKey(f)];
+    if (v) pushIfNew(v);
   }
 
   const handleSaveEnhancedToLibrary = async (result: EnhanceResult) => {
